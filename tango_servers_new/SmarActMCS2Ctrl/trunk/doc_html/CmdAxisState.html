@@ -1,0 +1,71 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html>
+<head>
+<title> SmarActMCS2Ctrl Tango Class Command AxisState </title>
+</head>
+<body text="Black" bgcolor="White" link="Blue" vlink="Purple" alink="Red">
+<br><br><br>
+<font size="+1"><u><b> Command AxisState : </b></u></font>
+<ul>
+	Returns 16-bit value describing channel state:<Br>
+	<Br>
+	0 SA_CTL_CH_STATE_BIT_ACTIVELY_MOVING 0x0001<Br>
+	1 SA_CTL_CH_STATE_BIT_CLOSED_LOOP_ACTIVE 0x0002<Br>
+	2 SA_CTL_CH_STATE_BIT_CALIBRATING 0x0004<Br>
+	3 SA_CTL_CH_STATE_BIT_REFERENCING 0x0008<Br>
+	4 SA_CTL_CH_STATE_BIT_MOVE_DELAYED 0x0010<Br>
+	5 SA_CTL_CH_STATE_BIT_SENSOR_PRESENT 0x0020<Br>
+	6 SA_CTL_CH_STATE_BIT_IS_CALIBRATED 0x0040<Br>
+	7 SA_CTL_CH_STATE_BIT_IS_REFERENCED 0x0080<Br>
+	8 SA_CTL_CH_STATE_BIT_END_STOP_REACHED 0x0100<Br>
+	9 SA_CTL_CH_STATE_BIT_RANGE_LIMIT_REACHED 0x0200<Br>
+	10 SA_CTL_CH_STATE_BIT_FOLLOWING_LIMIT_REACHED 0x0400<Br>
+	11 SA_CTL_CH_STATE_BIT_MOVEMENT_FAILED 0x0800<Br>
+	12 SA_CTL_CH_STATE_BIT_IS_STREAMING 0x1000<Br>
+	14 SA_CTL_CH_STATE_BIT_OVER_TEMPERATURE 0x4000<Br>
+	15 SA_CTL_CH_STATE_BIT_REFERENCE_MARK 0x8000
+</ul>
+<br><br><br>
+<Table Border=2 Cellpadding=3 CELLSPACING=0>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+	<td colspan=0> <font size=+1> <center><b> AxisState Definition </b></font></center></td>
+	</tr>
+	<tr>
+		<td> Input Argument </td>
+		<td> Tango::DEV_ULONG </td>
+		<td> Axis number </td>
+	</tr>
+	<tr>
+		<td> Output Argument </td>
+		<td> Tango::DEV_USHORT </td>
+		<td> Axis status </td>
+	</tr>
+	<tr>
+		<td> DisplayLevel </td>
+		<td> OPERATOR </td>
+		<td> .. </td>
+	</tr>
+	<tr>
+		<td> Inherited </td>
+		<td> false </td>
+		<td> .. </td>
+	</tr>
+	<tr>
+		<td> Abstract </td>
+		<td> false </td>
+		<td> .. </td>
+	</tr>
+	<tr>
+		<td> Polling Period </td>
+		<td> Not polled </td>
+		<td> .. </td>
+	</tr>
+<Tr BGCOLOR="#CCCCFF"><Td><Hr></Td><Td><Hr></Td><Td><Hr></Td></Tr>
+	<tr>
+		<td> Command NOT allowed for </td>
+		<td> <font size="-1">  <li> OFF </li> </font> </td>
+		<td> .. </td>
+	</tr>
+</table>
+</body>
+</html>

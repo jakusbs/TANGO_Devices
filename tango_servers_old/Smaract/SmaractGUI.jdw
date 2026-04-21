@@ -1,0 +1,107 @@
+JDFile v11 {
+  Global {
+  }
+  JDSwingObject {
+    summit:208,83,307,152
+    origin:279,92
+    fillStyle:1
+    lineWidth:0
+    name:"hpp-42/Smaract/smaract/State"
+    extensions:{
+      alarmEnabled:"true"
+      validBackground:"0,255,0"
+    }
+    className:"fr.esrf.tangoatk.widget.attribute.SimpleEnumScalarViewer"
+    font:"Dialog",0,12
+  }
+  JDSwingObject {
+    summit:404,119,485,135
+    origin:438,127
+    fillStyle:1
+    lineWidth:0
+    name:"hpp-n42/Smaract/smaract/position0"
+    extensions:{
+      unitVisible:"true"
+      userFormat:""
+      alarmEnabled:"true"
+      validBackground:"0,255,0"
+      invalidText:"-----"
+    }
+    className:"fr.esrf.tangoatk.widget.attribute.SimpleScalarViewer"
+    font:"Dialog",0,14
+  }
+  JDSwingObject {
+    summit:228,124,296,139
+    origin:262,132
+    fillStyle:1
+    lineWidth:0
+    name:"hpp-42/Smaract/smaract/State"
+    extensions:{
+      unitVisible:"true"
+      userFormat:""
+      alarmEnabled:"true"
+      validBackground:"0,255,0"
+      invalidText:"-----"
+    }
+    className:"fr.esrf.tangoatk.widget.attribute.SimpleScalarViewer"
+    font:"Dialog",0,12
+  }
+  JDLabel {
+    summit:228,93,289,118
+    origin:250,104
+    lineWidth:0
+    name:"Label"
+    font:"Dialog",1,18
+    text:"State"
+  }
+  JDRectangle {
+    summit:185,69,369,203
+    origin:277,136
+    name:"Rectangle"
+  }
+  JDLabel {
+    summit:399,84,499,109
+    origin:430,95
+    lineWidth:0
+    name:"Label"
+    font:"Dialog",1,18
+    text:"Positions"
+  }
+  JDRectangle {
+    summit:382,72,518,202
+    origin:450,137
+    name:"Rectangle"
+  }
+  JDSwingObject {
+    summit:406,143,487,159
+    origin:440,151
+    fillStyle:1
+    lineWidth:0
+    name:"hpp-n42/Smaract/smaract/position1"
+    extensions:{
+      unitVisible:"true"
+      userFormat:""
+      alarmEnabled:"true"
+      validBackground:"0,255,0"
+      invalidText:"-----"
+    }
+    className:"fr.esrf.tangoatk.widget.attribute.SimpleScalarViewer"
+    font:"Dialog",0,14
+  }
+  JDSwingObject {
+    summit:406,167,487,183
+    origin:440,175
+    fillStyle:1
+    lineWidth:0
+    name:"hpp-n42/smaract/smaract/position2"
+    extensions:{
+      unitVisible:"true"
+      userFormat:""
+      alarmEnabled:"true"
+      validBackground:"0,255,0"
+      invalidText:"-----"
+    }
+    className:"fr.esrf.tangoatk.widget.attribute.SimpleScalarViewer"
+    font:"Dialog",0,14
+  }
+}

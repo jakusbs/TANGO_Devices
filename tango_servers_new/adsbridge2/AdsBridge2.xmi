@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="ASCII"?>
+<pogoDsl:PogoSystem xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:pogoDsl="http://tango-controls.org/pogo/PogoDsl">
+  <classes name="AdsBridge2" pogoRevision="9.1">
+    <description description="ADS bridge version 2, using the pure Python&#xA;implementation of the bridge. It is compatible to the old AdsBridge" title="AdsBridge Version 2" sourcePath="/home/intermag/TangoServers/adsbridge2" language="PythonHL" filestogenerate="XMI   file,Code files,Protected Regions" license="GPL" copyright="" hasMandatoryProperty="true" hasConcreteProperty="true" hasAbstractCommand="false" hasAbstractAttribute="false">
+      <inheritances classname="Device_Impl" sourcePath=""/>
+      <identification contact="at solid.phys.ethz.ch - acremann" author="acremann" emailDomain="solid.phys.ethz.ch" classFamily="Communication" siteSpecific="" platform="Unix Like" bus="Ethernet" manufacturer="none" reference=""/>
+    </description>
+    <deviceProperties name="PlcAmsAddress" mandatory="true" description="AMS address of the PLC">
+      <type xsi:type="pogoDsl:StringType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </deviceProperties>
+    <deviceProperties name="PlcIP" mandatory="true" description="">
+      <type xsi:type="pogoDsl:StringType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </deviceProperties>
+    <deviceProperties name="Port" description="ADS Port">
+      <type xsi:type="pogoDsl:UShortType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+      <DefaultPropValue>801</DefaultPropValue>
+    </deviceProperties>
+    <commands name="State" description="This command gets the device state (stored in its device_state data member) and returns it to the caller." execMethod="dev_state" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="none">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argin>
+      <argout description="Device state">
+        <type xsi:type="pogoDsl:StateType"/>
+      </argout>
+      <status abstract="true" inherited="true" concrete="true"/>
+    </commands>
+    <commands name="Status" description="This command gets the device status (stored in its device_status data member) and returns it to the caller." execMethod="dev_status" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="none">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argin>
+      <argout description="Device status">
+        <type xsi:type="pogoDsl:ConstStringType"/>
+      </argout>
+      <status abstract="true" inherited="true" concrete="true"/>
+    </commands>
+    <commands name="ReadBool" description="" execMethod="read_bool" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="Request">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="Response">
+        <type xsi:type="pogoDsl:BooleanType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteBool" description="variable=value" execMethod="write_bool" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="Request">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadInt" description="" execMethod="read_int" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="value">
+        <type xsi:type="pogoDsl:IntType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteInt" description="" execMethod="write_int" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable=value">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadReal" description="Read an LREAL" execMethod="read_real" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="value">
+        <type xsi:type="pogoDsl:DoubleType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteReal" description="Write a LREAL value" execMethod="write_real" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable=value">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadShort" description="" execMethod="read_short" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="value">
+        <type xsi:type="pogoDsl:IntType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteShort" description="" execMethod="write_short" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="variable=value">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadRealArray" description="" execMethod="read_real_array" displayLevel="OPERATOR" polledPeriod="0" isDynamic="false">
+      <argin description="Variable name, number of elements">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="array values">
+        <type xsi:type="pogoDsl:DoubleArrayType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <preferences docHome="./doc_html" makefileHome="/usr/share/pogo/preferences"/>
+  </classes>
+</pogoDsl:PogoSystem>

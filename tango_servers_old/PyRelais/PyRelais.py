@@ -47,11 +47,11 @@ import sys
 # Add additional import
 #----- PROTECTED REGION ID(PyRelais.additionnal_import) ENABLED START -----#
 import time
-#----- PROTECTED REGION END -----#    //    PyRelais.additionnal_import
+#----- PROTECTED REGION END -----#	//	PyRelais.additionnal_import
 
 # Device States Description
-# ON :
-# OFF :
+# ON : 
+# OFF : 
 
 
 class PyRelais (PyTango.Device_4Impl):
@@ -60,7 +60,7 @@ class PyRelais (PyTango.Device_4Impl):
     # -------- Add you global variables here --------------------------
     #----- PROTECTED REGION ID(PyRelais.global_variables) ENABLED START -----#
     
-    #----- PROTECTED REGION END -----#    //    PyRelais.global_variables
+    #----- PROTECTED REGION END -----#	//	PyRelais.global_variables
 
     def __init__(self, cl, name):
         PyTango.Device_4Impl.__init__(self,cl,name)
@@ -72,13 +72,13 @@ class PyRelais (PyTango.Device_4Impl):
         self.info_stream("opened AdsBridge Proxy at "+self.AdsBridge)
         print("PyRelais: opened adsBridge Proxy at "+self.AdsBridge)
         self.set_state(PyTango.DevState.ON)
-        #----- PROTECTED REGION END -----#    //    PyRelais.__init__
+        #----- PROTECTED REGION END -----#	//	PyRelais.__init__
         
     def delete_device(self):
         self.debug_stream("In delete_device()")
         #----- PROTECTED REGION ID(PyRelais.delete_device) ENABLED START -----#
         
-        #----- PROTECTED REGION END -----#    //    PyRelais.delete_device
+        #----- PROTECTED REGION END -----#	//	PyRelais.delete_device
 
     def init_device(self):
         self.debug_stream("In init_device()")
@@ -86,13 +86,13 @@ class PyRelais (PyTango.Device_4Impl):
         self.attr_switchvar_read = 0
         #----- PROTECTED REGION ID(PyRelais.init_device) ENABLED START -----#
 
-        #----- PROTECTED REGION END -----#    //    PyRelais.init_device
+        #----- PROTECTED REGION END -----#	//	PyRelais.init_device
 
     def always_executed_hook(self):
         self.debug_stream("In always_excuted_hook()")
         #----- PROTECTED REGION ID(PyRelais.always_executed_hook) ENABLED START -----#
         
-        #----- PROTECTED REGION END -----#    //    PyRelais.always_executed_hook
+        #----- PROTECTED REGION END -----#	//	PyRelais.always_executed_hook
 
     # -------------------------------------------------------------------------
     #    PyRelais read/write attribute methods
@@ -102,7 +102,7 @@ class PyRelais (PyTango.Device_4Impl):
         self.debug_stream("In read_switchvar()")
         #----- PROTECTED REGION ID(PyRelais.switchvar_read) ENABLED START -----#
         attr.set_value(self.attr_switchvar_read)
-        #----- PROTECTED REGION END -----#    //    PyRelais.switchvar_read
+        #----- PROTECTED REGION END -----#	//	PyRelais.switchvar_read
         
     def write_switchvar(self, attr):
         self.debug_stream("In write_switchvar()")
@@ -113,7 +113,7 @@ class PyRelais (PyTango.Device_4Impl):
             self.OFF()
         else:
             self.ON()
-        #----- PROTECTED REGION END -----#    //    PyRelais.switchvar_write
+        #----- PROTECTED REGION END -----#	//	PyRelais.switchvar_write
         
     
     
@@ -122,7 +122,7 @@ class PyRelais (PyTango.Device_4Impl):
         self.debug_stream("In read_attr_hardware()")
         #----- PROTECTED REGION ID(PyRelais.read_attr_hardware) ENABLED START -----#
         
-        #----- PROTECTED REGION END -----#    //    PyRelais.read_attr_hardware
+        #----- PROTECTED REGION END -----#	//	PyRelais.read_attr_hardware
 
 
     # -------------------------------------------------------------------------
@@ -141,7 +141,7 @@ class PyRelais (PyTango.Device_4Impl):
         self.ads.WriteBool(self.BeckhoffGround+'=false')
         self.set_state(PyTango.DevState.ON)
         self.info_stream("Relais set to on using AdsBridge "+self.AdsBridge+" with Beckhoff-Variable "+self.BeckhoffVariable)
-        #----- PROTECTED REGION END -----#    //    PyRelais.ON
+        #----- PROTECTED REGION END -----#	//	PyRelais.ON
         
     def OFF(self):
         """ Set Beckhoff Output to 0 V
@@ -155,18 +155,18 @@ class PyRelais (PyTango.Device_4Impl):
         self.ads.WriteBool(self.BeckhoffGround+'=false')
         self.set_state(PyTango.DevState.STANDBY)
         self.info_stream("Relais set to off using AdsBridge "+self.AdsBridge+" with Beckhoff-Variable "+self.BeckhoffVariable)
-        #----- PROTECTED REGION END -----#    //    PyRelais.OFF
+        #----- PROTECTED REGION END -----#	//	PyRelais.OFF
         
 
     #----- PROTECTED REGION ID(PyRelais.programmer_methods) ENABLED START -----#
     
-    #----- PROTECTED REGION END -----#    //    PyRelais.programmer_methods
+    #----- PROTECTED REGION END -----#	//	PyRelais.programmer_methods
 
 class PyRelaisClass(PyTango.DeviceClass):
     # -------- Add you global class variables here --------------------------
     #----- PROTECTED REGION ID(PyRelais.global_class_variables) ENABLED START -----#
     
-    #----- PROTECTED REGION END -----#    //    PyRelais.global_class_variables
+    #----- PROTECTED REGION END -----#	//	PyRelais.global_class_variables
 
 
     #    Class Properties
@@ -177,17 +177,17 @@ class PyRelaisClass(PyTango.DeviceClass):
     #    Device Properties
     device_property_list = {
         'AdsBridge':
-            [PyTango.DevString,
+            [PyTango.DevString, 
             "Tango Path to AdsBridge",
             ["hpp-n42/beckhoff/adsBridge"] ],
         'BeckhoffVariable':
-            [PyTango.DevString,
+            [PyTango.DevString, 
             "Beckhoff Variable for turning Relais on (True) or off (False)",
-            ["Main.DigitalOut1"] ],
+            ["Main.DigitalOut2"] ],
         'BeckhoffGround':
-            [PyTango.DevString,
+            [PyTango.DevString, 
             "Sets the contact on ground, since there were issues of blowing devices up...",
-            ["Main.DigitalOut8"] ],
+            ["Main.DigitalOut7"] ],
         }
 
 
@@ -217,7 +217,7 @@ def main():
         py.add_class(PyRelaisClass, PyRelais, 'PyRelais')
         #----- PROTECTED REGION ID(PyRelais.add_classes) ENABLED START -----#
         
-        #----- PROTECTED REGION END -----#    //    PyRelais.add_classes
+        #----- PROTECTED REGION END -----#	//	PyRelais.add_classes
 
         U = PyTango.Util.instance()
         U.server_init()
@@ -230,5 +230,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-

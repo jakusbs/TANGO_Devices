@@ -77,16 +77,19 @@ class ANC300(Device):
             print('Could not connect to ANC300 using Ethernet...')
             return
 
-        # Read all initial values
-        self._fx = self._getf(self.addr_x)
-        self._fy = self._getf(self.addr_y)
-        self._fz = self._getf(self.addr_z)
-        self._Vx = self._getv(self.addr_x)
-        self._Vy = self._getv(self.addr_y)
-        self._Vz = self._getv(self.addr_z)
-        self._Gx = self._getm(self.addr_x)
-        self._Gy = self._getm(self.addr_y)
-        self._Gz = self._getm(self.addr_z)
+        # Read all initial values; non-fatal if any individual query fails
+        try:
+            self._fx = self._getf(self.addr_x)
+            self._fy = self._getf(self.addr_y)
+            self._fz = self._getf(self.addr_z)
+            self._Vx = self._getv(self.addr_x)
+            self._Vy = self._getv(self.addr_y)
+            self._Vz = self._getv(self.addr_z)
+            self._Gx = self._getm(self.addr_x)
+            self._Gy = self._getm(self.addr_y)
+            self._Gz = self._getm(self.addr_z)
+        except Exception as e:
+            self.error_stream("ANC300: initial read failed (using defaults): {}".format(e))
 
     def always_executed_hook(self):
         pass

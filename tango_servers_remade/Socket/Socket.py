@@ -63,16 +63,26 @@ class Socket(Device):
         s.connect((self.Hostname, self.Port))
         self._sock = s
 
+    def _require_connected(self):
+        """Raise a TANGO DevFailed if the socket is not open."""
+        if self._sock is None:
+            tango.Except.throw_exception(
+                "Socket not connected",
+                "Socket is in FAULT state — call Reconnect first",
+                "Socket::_require_connected")
+
     # ---- Commands -------------------------------------------------------
 
     @command(dtype_in='DevString', doc_in="String to send")
     def Write(self, argin):
         """Send a string to the socket (no newline appended)."""
+        self._require_connected()
         self._sock.sendall(argin.encode())
 
     @command(dtype_out='DevString', doc_out="Received string")
     def Read(self):
         """Read available data from the socket."""
+        self._require_connected()
         data = self._sock.recv(4096)
         return data.decode()
 
@@ -86,6 +96,7 @@ class Socket(Device):
              dtype_out='DevString', doc_out="Received string")
     def WriteAndRead(self, argin):
         """Write a string then immediately read the response."""
+        self._require_connected()
         self._sock.sendall(argin.encode())
         data = self._sock.recv(4096)
         return data.decode()
@@ -93,6 +104,7 @@ class Socket(Device):
     @command(dtype_out='DevString', doc_out="Line read from socket (strips trailing newline)")
     def Readln(self):
         """Read characters until a newline character is received."""
+        self._require_connected()
         buf = b''
         while True:
             c = self._sock.recv(1)
@@ -105,6 +117,7 @@ class Socket(Device):
              dtype_out='DevString', doc_out="Data read up to and including the terminator")
     def ReadUntil(self, argin):
         """Read characters until the given terminator string is received."""
+        self._require_connected()
         buf = b''
         term = argin.encode()
         while True:
@@ -120,6 +133,7 @@ class Socket(Device):
              dtype_out='DevString', doc_out="Response up to and including the terminator")
     def WriteReadUntil(self, argin):
         """Write argin[0], then read until argin[1] is received."""
+        self._require_connected()
         write_str = argin[0]
         terminator = argin[1]
         self._sock.sendall(write_str.encode())
@@ -137,12 +151,14 @@ class Socket(Device):
     @command(dtype_in='DevString', doc_in="String to send (newline appended)")
     def WriteLine(self, argin):
         """Send a string followed by a newline character."""
+        self._require_connected()
         self._sock.sendall((argin + '\n').encode())
 
     @command(dtype_in='DevString', doc_in="String to send",
              dtype_out='DevString', doc_out="Received string")
     def WriteRead(self, argin):
         """Write a string then read the response."""
+        self._require_connected()
         self._sock.sendall(argin.encode())
         data = self._sock.recv(4096)
         return data.decode()
@@ -151,6 +167,7 @@ class Socket(Device):
              dtype_out='DevString', doc_out="Response up to the null character")
     def WriteReadZero(self, argin):
         """Write a string then read characters until a null byte is received."""
+        self._require_connected()
         self._sock.sendall(argin.encode())
         buf = b''
         while True:
@@ -163,6 +180,7 @@ class Socket(Device):
     @command(dtype_out='DevString', doc_out="Single character read from socket")
     def ReadChar(self):
         """Read a single character from the socket."""
+        self._require_connected()
         c = self._sock.recv(1)
         return c.decode()
 

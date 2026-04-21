@@ -93,6 +93,9 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     def write_MagneticField(self, attr):
         data = attr.get_write_value()
         self.setField = data
+        # Stop any previous convergence-check thread before starting a new one
+        if hasattr(self, 'thread') and self.thread.is_alive():
+            self.thread.stop()
         cmd = "W001:" + str(data)
         self.s.sendto(cmd.encode('utf-8'), self.server)
         self.thread = AttoDRYCheck(self)
@@ -104,6 +107,9 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     def write_Temperature(self, attr):
         data = attr.get_write_value()
         self.setTemp = data
+        # Stop any previous convergence-check thread before starting a new one
+        if hasattr(self, 'thread') and self.thread.is_alive():
+            self.thread.stop()
         cmd = "W002:" + str(data)
         self.s.sendto(cmd.encode('utf-8'), self.server)
         self.thread = AttoDRYCheck(self)

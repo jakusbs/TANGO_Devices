@@ -127,11 +127,16 @@ class Magnet(Device):
     @attribute(dtype=float, unit='mT',
                doc="Polar field multiplied by correction factor corr_polar")
     def field_polar_corr(self):
+        # Always do a fresh read so this attribute is independent of field_polar poll order
+        raw = self.ads.ReadReal(self.BeckhoffVariable_polarfield)
+        self._field_polar = raw / self.HallSensitivity_polar * 1000.0
         return self._field_polar * self._corr_polar
 
     @attribute(dtype=float, unit='mT',
                doc="Longitudinal field multiplied by correction factor corr_longitudinal")
     def field_longitudinal_corr(self):
+        raw = self.ads.ReadReal(self.BeckhoffVariable_longitudinalfield)
+        self._field_longitudinal = raw / self.HallSensitivity_longitudinal * 1000.0
         return self._field_longitudinal * self._corr_longitudinal
 
     # ---- Attributes: correction factors (RW) ----------------------------

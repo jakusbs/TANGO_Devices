@@ -1,0 +1,2 @@
+[console_scripts]
+DG645 = DG645_DelayGenerator:main

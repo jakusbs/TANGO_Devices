@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: dg645-tango
+Version: 1.0.0
+Summary: TANGO device server for the SRS DG645 Digital Delay Generator
+Requires-Python: >=3.8
+Requires-Dist: pytango

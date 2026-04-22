@@ -44,6 +44,11 @@ class PyKeithleyPulse(Device):
         doc="TANGO path to the Socket device for the Keithley"
     )
 
+    _RANGE_MAP = {
+        '0.0002mA': '2e-7', '0.002mA': '2e-6', '0.02mA': '2e-5',
+        '0.2mA': '2e-4', '2mA': '0.002', '20mA': '0.02', '100mA': '0.1',
+    }
+
     def init_device(self):
         Device.init_device(self)
         self._pulse_amplitude = 0.0
@@ -52,6 +57,8 @@ class PyKeithleyPulse(Device):
         self._compliance      = 10.0
         self._autorange       = False
         self._frequency       = 1.0
+        self._range           = '100mA'
+        self._wave_running    = False
         self.keithley = tango.DeviceProxy(self.SocketProxy)
         self.set_state(DevState.ON)
 
@@ -69,6 +76,8 @@ class PyKeithleyPulse(Device):
     @pulseAmplitude.write
     def pulseAmplitude(self, value):
         self._pulse_amplitude = min(abs(value), self._max_amplitude)
+        if self._wave_running:
+            self._rearm()
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=True,
@@ -102,8 +111,11 @@ class PyKeithleyPulse(Device):
             value = 0.1
         if value > 105.0:
             value = 105.0
-        self.keithley.Write('CURR:COMP ' + str(value))
         self._compliance = value
+        if self._wave_running:
+            self._rearm()
+        else:
+            self.keithley.Write('CURR:COMP ' + str(value))
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=True,
@@ -114,10 +126,13 @@ class PyKeithleyPulse(Device):
     @autoRange.write
     def autoRange(self, value):
         self._autorange = bool(value)
-        if self._autorange:
-            self.keithley.Write('CURR:RANGE:AUTO ON')
+        if self._wave_running:
+            self._rearm()
         else:
-            self.keithley.Write('CURR:RANGE:AUTO OFF')
+            if self._autorange:
+                self.keithley.Write('CURR:RANGE:AUTO ON')
+            else:
+                self.keithley.Write('CURR:RANGE:AUTO OFF')
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=True,
@@ -128,8 +143,51 @@ class PyKeithleyPulse(Device):
     @frequency.write
     def frequency(self, value):
         self._frequency = value
+        if self._wave_running:
+            self._rearm()
+
+    @attribute(dtype=str, access=AttrWriteType.READ_WRITE,
+               memorized=True, hw_memorized=True,
+               doc="Current range: 0.0002mA, 0.002mA, 0.02mA, 0.2mA, 2mA, 20mA, 100mA")
+    def range(self):
+        return self._range
+
+    @range.write
+    def range(self, value):
+        if value not in self._RANGE_MAP:
+            tango.Except.throw_exception(
+                "Invalid range",
+                "Valid ranges: " + ', '.join(self._RANGE_MAP.keys()),
+                "PyKeithleyPulse::range")
+        self._range = value
+        if self._wave_running:
+            self._rearm()
+        elif not self._autorange:
+            self.keithley.Write('CURR:RANGE ' + self._RANGE_MAP[value])
 
     # ---- Commands -------------------------------------------------------
+
+    def _rearm(self):
+        """Abort, reconfigure, and restart the square wave with current parameters."""
+        self.keithley.Write('SOUR:WAVE:ABOR')
+        amp_a = min(self._pulse_amplitude, self._max_amplitude) / 1000.0
+        self.keithley.Write('SOUR:WAVE:FUNC SQU')
+        self.keithley.Write('SOUR:WAVE:AMPL ' + str(amp_a))
+        self.keithley.Write('SOUR:WAVE:FREQ ' + str(self._frequency))
+        self.keithley.Write('SOUR:WAVE:DCYC 50')
+        self.keithley.Write('CURR:COMP ' + str(self._compliance))
+        if self._autorange:
+            self.keithley.Write('CURR:RANGE:AUTO ON')
+        else:
+            self.keithley.Write('CURR:RANGE:AUTO OFF')
+            self.keithley.Write('CURR:RANGE ' + self._RANGE_MAP[self._range])
+        self.keithley.Write('SOUR:WAVE:PMAR:STAT ON')
+        self.keithley.Write('SOUR:WAVE:PMAR 180')
+        self.keithley.Write('SOUR:WAVE:PMAR:OLIN 5')
+        self.keithley.Write('SOUR:WAVE:RANG FIX')
+        self.keithley.Write('SOUR:WAVE:DUR:TIME INF')
+        self.keithley.Write('SOUR:WAVE:ARM')
+        self.keithley.Write('SOUR:WAVE:INIT')
 
     @command()
     def ON(self):
@@ -139,27 +197,19 @@ class PyKeithleyPulse(Device):
     @command()
     def OFF(self):
         """Disable the current output."""
+        self._wave_running = False
         self.keithley.Write('OUTP OFF')
 
     @command()
     def SQUAREWAVE(self):
         """Configure and start square-wave (pulse) output."""
-        amp_a = min(self._pulse_amplitude, self._max_amplitude) / 1000.0
-        self.keithley.Write('SOUR:WAVE:FUNC SQU')
-        self.keithley.Write('SOUR:WAVE:AMPL ' + str(amp_a))
-        self.keithley.Write('SOUR:WAVE:FREQ ' + str(self._frequency))
-        self.keithley.Write('SOUR:WAVE:DCYC 50')          # 50 % duty cycle
-        self.keithley.Write('SOUR:WAVE:PMAR:STAT ON')      # phase marker
-        self.keithley.Write('SOUR:WAVE:PMAR 180')
-        self.keithley.Write('SOUR:WAVE:PMAR:OLIN 5')       # trigger line 5
-        self.keithley.Write('SOUR:WAVE:RANG FIX')
-        self.keithley.Write('SOUR:WAVE:DUR:TIME INF')      # run indefinitely
-        self.keithley.Write('SOUR:WAVE:ARM')
-        self.keithley.Write('SOUR:WAVE:INIT')
+        self._rearm()
+        self._wave_running = True
 
     @command()
     def WAVEOFF(self):
         """Abort the current square-wave output."""
+        self._wave_running = False
         self.keithley.Write('SOUR:WAVE:ABOR')
 
 

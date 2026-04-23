@@ -40,6 +40,13 @@ class PyKeithley(Device):
         self._frequency = 0.0
         self._range = ""
         self.keithley = tango.DeviceProxy(self.SocketProxy)
+        # Recover from any state left by a previous session (instrument keeps
+        # running waveforms across TCP disconnects). ABOR is safe in IDLE state.
+        try:
+            self.keithley.WriteLine('SOUR:WAVE:ABOR')
+            self.keithley.WriteLine('OUTP OFF')
+        except Exception:
+            pass
         self.set_state(DevState.ON)
 
     def always_executed_hook(self):
@@ -57,7 +64,7 @@ class PyKeithley(Device):
     def current(self, value):
         if abs(value) > 105.0:
             value = 105.0 if value > 0 else -105.0
-        self.keithley.Write('CURR ' + str(value / 1000.0))
+        self.keithley.WriteLine('CURR ' + str(value / 1000.0))
         self._current = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -72,7 +79,7 @@ class PyKeithley(Device):
             value = 0.1
         if value > 105.0:
             value = 105.0
-        self.keithley.Write('CURR:COMP ' + str(value))
+        self.keithley.WriteLine('CURR:COMP ' + str(value))
         self._compliance = value
 
     @attribute(dtype=bool, access=AttrWriteType.READ_WRITE,
@@ -84,9 +91,9 @@ class PyKeithley(Device):
     @autorange.write
     def autorange(self, value):
         if value:
-            self.keithley.Write('CURR:RANGE:AUTO ON')
+            self.keithley.WriteLine('CURR:RANGE:AUTO ON')
         else:
-            self.keithley.Write('CURR:RANGE:AUTO OFF')
+            self.keithley.WriteLine('CURR:RANGE:AUTO OFF')
         self._autorange = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -128,7 +135,7 @@ class PyKeithley(Device):
             '100mA':    '25e-3',
         }
         if value in range_map:
-            self.keithley.Write('CURR:RANGE ' + range_map[value])
+            self.keithley.WriteLine('CURR:RANGE ' + range_map[value])
         self._range = value
 
     # ---- Commands -------------------------------------------------------
@@ -136,32 +143,33 @@ class PyKeithley(Device):
     @command()
     def ON(self):
         """Enable the current output."""
-        self.keithley.Write('OUTP ON')
+        self.keithley.WriteLine('OUTP ON')
 
     @command()
     def OFF(self):
         """Disable the current output."""
-        self.keithley.Write('OUTP OFF')
+        self.keithley.WriteLine('OUTP OFF')
 
     @command()
     def SINEWAVE(self):
         """Configure and start sine-wave output with trigger on line 5."""
-        self.keithley.Write('SOUR:WAVE:FUNC SIN')
-        self.keithley.Write('SOUR:WAVE:FREQ ' + str(self._frequency))
-        self.keithley.Write('SOUR:WAVE:AMPL ' + str(self._amplitude / 1000.0))
-        self.keithley.Write('SOUR:WAVE:PMAR:STAT ON')   # enable phase marker
-        self.keithley.Write('SOUR:WAVE:PMAR 180')        # marker phase
-        self.keithley.Write('SOUR:WAVE:PMAR:OLIN 5')     # trigger line 5
-        self.keithley.Write('SOUR:WAVE:DUR:TIME INF')    # infinite repetition
-        self.keithley.Write('SOUR:WAVE:RANG FIX')        # fixed range
+        self.keithley.WriteLine('SOUR:WAVE:ABOR')         # ensure IDLE state
+        self.keithley.WriteLine('SOUR:WAVE:FUNC SIN')
+        self.keithley.WriteLine('SOUR:WAVE:FREQ ' + str(self._frequency))
+        self.keithley.WriteLine('SOUR:WAVE:AMPL ' + str(self._amplitude / 1000.0))
+        self.keithley.WriteLine('SOUR:WAVE:PMAR:STAT ON')
+        self.keithley.WriteLine('SOUR:WAVE:PMAR 180')
+        self.keithley.WriteLine('SOUR:WAVE:PMAR:OLIN 5')
+        self.keithley.WriteLine('SOUR:WAVE:DUR:TIME INF')
+        self.keithley.WriteLine('SOUR:WAVE:RANG FIX')
         time.sleep(0.1)
-        self.keithley.Write('SOUR:WAVE:ARM')
-        self.keithley.Write('SOUR:WAVE:INIT')
+        self.keithley.WriteLine('SOUR:WAVE:ARM')
+        self.keithley.WriteLine('SOUR:WAVE:INIT')
 
     @command()
     def WAVEOFF(self):
         """Abort the current sine-wave output."""
-        self.keithley.Write('SOUR:WAVE:ABOR')
+        self.keithley.WriteLine('SOUR:WAVE:ABOR')
 
 
 def main(args=None, **kwargs):

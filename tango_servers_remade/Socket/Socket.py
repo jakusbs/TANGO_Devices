@@ -84,8 +84,17 @@ class Socket(Device):
                 self.set_status("Reconnect failed: {}".format(e))
 
     def _require_connected(self):
-        """Raise a TANGO DevFailed if the socket is not open."""
+        """Ensure the socket is open; auto-reconnect if AutoReconnect is enabled."""
         if self._sock is None:
+            if self.AutoReconnect:
+                try:
+                    self._connect()
+                    self.set_state(DevState.ON)
+                    self.set_status("Reconnected to {}:{}".format(self.Hostname, self.Port))
+                    self.info_stream("Auto-reconnected to {}:{}".format(self.Hostname, self.Port))
+                    return
+                except Exception as e:
+                    self.set_status("Reconnect failed: {}".format(e))
             tango.Except.throw_exception(
                 "Socket not connected",
                 "Socket is in FAULT state — call Reconnect first",

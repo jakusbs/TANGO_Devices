@@ -27,10 +27,10 @@ class Socket(Device):
     - AutoReconnect: Reconnect automatically on connection loss (default True)
     """
 
-    Hostname      = device_property(dtype='str',  mandatory=True,      doc="Remote hostname or IP address")
-    Port          = device_property(dtype='int',  mandatory=True,      doc="TCP port number")
-    Readtimeout   = device_property(dtype='int',  default_value=1000,  doc="Read timeout in milliseconds")
-    AutoReconnect = device_property(dtype='bool', default_value=True,  doc="Reconnect automatically on connection loss")
+    Hostname      = device_property(dtype='str',  mandatory=True,       doc="Remote hostname or IP address")
+    Port          = device_property(dtype='int',  mandatory=True,       doc="TCP port number")
+    Readtimeout   = device_property(dtype='int',  default_value=1000,   doc="Read timeout in milliseconds")
+    AutoReconnect = device_property(dtype='bool', default_value=True,   doc="Reconnect automatically on connection loss")
 
     def init_device(self):
         Device.init_device(self)
@@ -61,16 +61,10 @@ class Socket(Device):
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         s.settimeout(self.Readtimeout / 1000.0)
         s.connect((self.Hostname, self.Port))
-        # TCP keepalives detect silently dropped connections (e.g. firmware bug)
-        # without waiting for a send to fail. Dead in ~25 s (10 + 3×5).
-        s.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
-        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE,  10)
-        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL,  5)
-        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT,    3)
         self._sock = s
 
     def _on_socket_error(self, exc):
-        """Mark connection broken and reconnect if AutoReconnect is enabled."""
+        """Mark connection broken; reconnect immediately if AutoReconnect is enabled."""
         self.error_stream("Socket error: {}".format(exc))
         try:
             if self._sock is not None:
@@ -97,6 +91,7 @@ class Socket(Device):
                     self._connect()
                     self.set_state(DevState.ON)
                     self.set_status("Reconnected to {}:{}".format(self.Hostname, self.Port))
+                    self.info_stream("Auto-reconnected to {}:{}".format(self.Hostname, self.Port))
                     return
                 except Exception as e:
                     self.set_status("Reconnect failed: {}".format(e))
@@ -105,73 +100,25 @@ class Socket(Device):
                 "Socket is in FAULT state — call Reconnect first",
                 "Socket::_require_connected")
 
-    def _send(self, data):
-        """Send bytes, retrying once after a transparent reconnect on error."""
-        try:
-            self._sock.sendall(data)
-        except _socket.error as e:
-            self._on_socket_error(e)
-            if self._sock is None:
-                tango.Except.throw_exception(
-                    "Socket not connected",
-                    "Send failed and reconnect unsuccessful: {}".format(e),
-                    "Socket::_send")
-            self._sock.sendall(data)  # retry once after reconnect
-
-    def _recv_line(self):
-        """Read until newline, retrying once after a transparent reconnect."""
-        try:
-            buf = b''
-            while True:
-                c = self._sock.recv(1)
-                if not c or c == b'\n':
-                    break
-                buf += c
-            return buf
-        except _socket.error as e:
-            self._on_socket_error(e)
-            if self._sock is None:
-                tango.Except.throw_exception(
-                    "Socket not connected",
-                    "Recv failed and reconnect unsuccessful: {}".format(e),
-                    "Socket::_recv_line")
-            raise
-
-    def _recv_until(self, term):
-        """Read until terminator bytes, retrying once after reconnect."""
-        try:
-            buf = b''
-            while True:
-                c = self._sock.recv(1)
-                if not c:
-                    break
-                buf += c
-                if buf.endswith(term):
-                    break
-            return buf
-        except _socket.error as e:
-            self._on_socket_error(e)
-            if self._sock is None:
-                tango.Except.throw_exception(
-                    "Socket not connected",
-                    "Recv failed and reconnect unsuccessful: {}".format(e),
-                    "Socket::_recv_until")
-            raise
-
     # ---- Commands -------------------------------------------------------
 
     @command(dtype_in='DevString', doc_in="String to send")
     def Write(self, argin):
         """Send a string to the socket (no newline appended)."""
         self._require_connected()
-        self._send(argin.encode())
+        try:
+            self._sock.sendall(argin.encode())
+        except _socket.error as e:
+            self._on_socket_error(e)
+            raise
 
     @command(dtype_out='DevString', doc_out="Received string")
     def Read(self):
         """Read available data from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(4096).decode()
+            data = self._sock.recv(4096)
+            return data.decode()
         except _socket.error as e:
             self._on_socket_error(e)
             raise
@@ -192,9 +139,10 @@ class Socket(Device):
     def WriteAndRead(self, argin):
         """Write a string then immediately read the response."""
         self._require_connected()
-        self._send(argin.encode())
         try:
-            return self._sock.recv(4096).decode()
+            self._sock.sendall(argin.encode())
+            data = self._sock.recv(4096)
+            return data.decode()
         except _socket.error as e:
             self._on_socket_error(e)
             raise
@@ -203,37 +151,80 @@ class Socket(Device):
     def Readln(self):
         """Read characters until a newline character is received."""
         self._require_connected()
-        return self._recv_line().decode()
+        try:
+            buf = b''
+            while True:
+                c = self._sock.recv(1)
+                if not c or c == b'\n':
+                    break
+                buf += c
+            return buf.decode()
+        except _socket.error as e:
+            self._on_socket_error(e)
+            raise
 
     @command(dtype_in='DevString', doc_in="Terminator string",
              dtype_out='DevString', doc_out="Data read up to and including the terminator")
     def ReadUntil(self, argin):
         """Read characters until the given terminator string is received."""
         self._require_connected()
-        return self._recv_until(argin.encode()).decode()
+        try:
+            buf = b''
+            term = argin.encode()
+            while True:
+                c = self._sock.recv(1)
+                if not c:
+                    break
+                buf += c
+                if buf.endswith(term):
+                    break
+            return buf.decode()
+        except _socket.error as e:
+            self._on_socket_error(e)
+            raise
 
     @command(dtype_in=('str',), doc_in="[write_string, terminator]",
              dtype_out='DevString', doc_out="Response up to and including the terminator")
     def WriteReadUntil(self, argin):
         """Write argin[0], then read until argin[1] is received."""
         self._require_connected()
-        self._send(argin[0].encode())
-        return self._recv_until(argin[1].encode()).decode()
+        try:
+            write_str = argin[0]
+            terminator = argin[1]
+            self._sock.sendall(write_str.encode())
+            buf = b''
+            term = terminator.encode()
+            while True:
+                c = self._sock.recv(1)
+                if not c:
+                    break
+                buf += c
+                if buf.endswith(term):
+                    break
+            return buf.decode()
+        except _socket.error as e:
+            self._on_socket_error(e)
+            raise
 
     @command(dtype_in='DevString', doc_in="String to send (newline appended)")
     def WriteLine(self, argin):
         """Send a string followed by a newline character."""
         self._require_connected()
-        self._send((argin + '\n').encode())
+        try:
+            self._sock.sendall((argin + '\n').encode())
+        except _socket.error as e:
+            self._on_socket_error(e)
+            raise
 
     @command(dtype_in='DevString', doc_in="String to send",
              dtype_out='DevString', doc_out="Received string")
     def WriteRead(self, argin):
         """Write a string then read the response."""
         self._require_connected()
-        self._send(argin.encode())
         try:
-            return self._sock.recv(4096).decode()
+            self._sock.sendall(argin.encode())
+            data = self._sock.recv(4096)
+            return data.decode()
         except _socket.error as e:
             self._on_socket_error(e)
             raise
@@ -243,8 +234,8 @@ class Socket(Device):
     def WriteReadZero(self, argin):
         """Write a string then read characters until a null byte is received."""
         self._require_connected()
-        self._send(argin.encode())
         try:
+            self._sock.sendall(argin.encode())
             buf = b''
             while True:
                 c = self._sock.recv(1)
@@ -261,7 +252,8 @@ class Socket(Device):
         """Read a single character from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(1).decode()
+            c = self._sock.recv(1)
+            return c.decode()
         except _socket.error as e:
             self._on_socket_error(e)
             raise

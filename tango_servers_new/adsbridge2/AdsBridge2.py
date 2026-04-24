@@ -120,6 +120,22 @@ class AdsBridge2(Device):
     # Commands
     # --------
 
+    @command()
+    @DebugIt()
+    def Reconnect(self):
+        # PROTECTED REGION ID(AdsBridge2.Reconnect) ENABLED START #
+        """Close and reopen the ADS connection. Use after a PLC reboot or network fault."""
+        try:
+            with self.lock:
+                self.plc.close()
+                self.plc.open()
+            self.set_state(PyTango.DevState.ON)
+            self.set_status("Reconnected")
+        except Exception as e:
+            self.set_state(PyTango.DevState.FAULT)
+            self.set_status("Reconnect failed: {}".format(e))
+            PyTango.Except.throw_exception("Reconnect failed", str(e), "AdsBridge2::Reconnect")
+        # PROTECTED REGION END #    //  AdsBridge2.Reconnect
 
     @command(
         dtype_in='DevString',
@@ -131,7 +147,8 @@ class AdsBridge2(Device):
     def ReadBool(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadBool) ENABLED START #
         try:
-            return self.plc.read_by_name(argin, pyads.PLCTYPE_BOOL)
+            with self.lock:
+                return self.plc.read_by_name(argin, pyads.PLCTYPE_BOOL)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read bool",
                 str(e),
@@ -159,7 +176,7 @@ class AdsBridge2(Device):
                 "AdsBridge2::WriteBool")
         
         try:
-            with(self.lock):
+            with self.lock:
                 self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_BOOL)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to set bool",
@@ -178,7 +195,7 @@ class AdsBridge2(Device):
     def ReadInt(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadInt) ENABLED START #
         try:
-            with(self.lock):
+            with self.lock:
                 return self.plc.read_by_name(argin, pyads.PLCTYPE_DINT)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read int",
@@ -196,7 +213,7 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = int(strings[1])
-            with(self.lock):
+            with self.lock:
                 self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_DINT)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write int",
@@ -214,7 +231,7 @@ class AdsBridge2(Device):
     def ReadReal(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadReal) ENABLED START #
         try:
-            with(self.lock):
+            with self.lock:
                 return self.plc.read_by_name(argin, pyads.PLCTYPE_LREAL)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read lreal",
@@ -232,7 +249,7 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = float(strings[1])
-            with(self.lock):
+            with self.lock:
                 self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_LREAL)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write lreal",
@@ -250,7 +267,7 @@ class AdsBridge2(Device):
     def ReadShort(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadShort) ENABLED START #
         try:
-            with(self.lock):
+            with self.lock:
                 return self.plc.read_by_name(argin, pyads.PLCTYPE_INT)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read short",
@@ -268,7 +285,7 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = int(strings[1])
-            with(self.lock):
+            with self.lock:
                 self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_INT)
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write short",
@@ -299,7 +316,7 @@ class AdsBridge2(Device):
             if count < 1:
                 count = 1
 
-            with(self.lock):
+            with self.lock:
                 # pyads syntax for reading arrays: Type * Count
                 return self.plc.read_by_name(var_name, pyads.PLCTYPE_LREAL * count)
                 
@@ -336,7 +353,7 @@ class AdsBridge2(Device):
             if count > 750:
                 count = 750
 
-            with(self.lock):
+            with self.lock:
                 # pyads syntax for reading arrays of DINT (32-bit int)
                 return self.plc.read_by_name(var_name, pyads.PLCTYPE_DINT * count)
 

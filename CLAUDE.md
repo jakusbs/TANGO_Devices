@@ -3,9 +3,11 @@
 ## Repository Structure
 
 ```
-tango_servers_old/      # Original C++ (and some old Python) servers — do not modify
-tango_servers_new/      # AdsBridge2 and ZI servers (newer Python, kept separately)
-tango_servers_remade/   # All servers ported to modern Python 3 tango.server API
+tango_servers_old/                  # Original C++ (and some old Python) servers — do not modify
+tango_servers_old/software_windows/ # Windows-side software: Beckhoff TwinCAT programs,
+                                    # AttoDRY socket bridge scripts, hardware manuals (PDFs)
+tango_servers_new/                  # AdsBridge2 and ZI servers (newer Python, kept separately)
+tango_servers_remade/               # All servers ported to modern Python 3 tango.server API
 ```
 
 Install target for all servers: `/usr/local/tango_servers`
@@ -110,6 +112,29 @@ do not change those without verifying on the actual hardware.
 - `LocalIP` and `LocalPort` were hardcoded in the old server (`192.168.1.7`, `11005`). They are now device properties with those same defaults — no database change needed for existing setups.
 - The `install.sh` copies three files: `AttoDRY` (executable), `AttoDRYThreadDaemon.py`, `AttoDRYCheck.py`
 
+### Two-thread architecture
+The remade AttoDRY uses two threads that must coexist cleanly:
+
+1. **`AttoDRYThread`** (daemon, `AttoDRYThreadDaemon.py`) — runs continuously; sends `"Read"` every 0.2 s and parses the `ReadA...N` UDP packet to update all attribute caches. Started once by `Start()` and never restarted unless it dies.
+
+2. **`AttoDRYCheck`** (`AttoDRYCheck.py`) — short-lived; started each time a `MagneticField` or `Temperature` setpoint is written. Polls the cached values (kept fresh by the daemon) and holds device state at `MOVING` until both field and temperature are within tolerance (0.001 T, 0.2 K), then sets state to `ON`. Without this thread there is no `MOVING` feedback — the device would appear done immediately after writing a setpoint.
+
+### AttoDRYCheck — stop/restart on new setpoint
+When a new setpoint arrives while `AttoDRYCheck` is still running (previous setpoint not yet reached):
+- `stop()` sets `_stop_event` which immediately wakes the sleeping thread and exits its loop
+- `join(timeout=1.0)` in `write_MagneticField`/`write_Temperature` waits for the old thread to finish before starting the new one — avoids two check threads running simultaneously against the same targets
+
+`stop()` must set the event and nothing else. Do **not** call `set_state()` inside `stop()` — the new thread will own the state from the moment it starts.
+
+### Attribute cache thread safety
+`AttoDRY.init_device()` creates `self._cache_lock` (a `threading.Lock`).
+`AttoDRYThread` holds this lock while writing all 26 attribute cache fields in one block.
+`AttoDRYCheck` reads field/temperature caches under the same lock.
+The main TANGO thread reads attributes directly from the cache (no lock needed for individual float reads on CPython, but the lock prevents partial-packet snapshots).
+
+### Socket timeout
+`Connect()` sets `s.settimeout(5.0)` before the handshake `recvfrom()`. If the Windows PC does not respond within 5 s the device goes to `OFF` cleanly instead of blocking forever. The daemon thread's `recvfrom()` also benefits — it catches `socket.timeout` and simply sleeps for the poll interval before retrying.
+
 ---
 
 ## POGO / XMI Files
@@ -124,8 +149,88 @@ do not change those without verifying on the actual hardware.
 
 ---
 
+## ANC300 — Notes
+
+- Communicates via Socket proxy (Telnet, TCP port **7230** on the ANC300)
+- Commands use ASCII text; must end with `\r\n` (DOS line endings) — `Socket.Write` already appends `\r\n` ✓
+- Command response timeout per manual: ~30 ms — the 100 ms sleeps in read helpers are safe
+- Default password: `123456`
+
+### Position writes (px/py/pz)
+Position is tracked as a **relative step counter** — the hardware has no absolute encoder.
+Write sequence: `setm <addr> stp` → sleep 0.1 s → `stepu`/`stepd`. Both commands must succeed before the cache is updated. If steps == 0 the step command is skipped (was previously issuing a `stepd 0`).
+
+### Ground attributes (Gx/Gy/Gz)
+- Write `True` → `setm <addr> gnd`
+- Write `False` → `setm <addr> stp` (return to stepping mode)
+- Previously, writing `False` was a silent no-op on hardware while updating the cache — fixed.
+
+### Ground() command
+Loops over all three axes with individual `try/except`; all axes are attempted even if one fails. Errors are collected and raised together at the end as a single `DevFailed`.
+
+---
+
+## ANM200 — Notes
+
+- Controls three ANM200 DC piezo motors via three **DoubleOutBeckhoff** TANGO proxies
+- Proxy chain: ANM200 → DoubleOutBeckhoff → AdsBridge2 → Beckhoff PLC
+- Each proxy exposes a `Value` attribute (float, volts) that maps to one `AOC` output on the PLC
+- Hardware limit: **±10 V** (Beckhoff AOC DAC range = ANM200 DC input range)
+
+### Scaling
+`scaling` converts between user units (µm) and DAC voltage: `voltage = position × scaling`.
+- Default: `1.0` (1 V per unit). Must be set to the correct µm/V value before using position attributes.
+- Writing `scaling = 0` raises `DevFailed` immediately.
+- Writing a position that would require `abs(voltage) > 10 V` raises `DevFailed` before the hardware write.
+
+### Startup state
+`init_device()` reads the current `Value` from each DoubleOutBeckhoff proxy so the cached position reflects the actual hardware output. Without this, the cache starts at 0.0 V regardless of what the DAC was last set to.
+
+---
+
+## Beckhoff / DoubleInBeckhoffAverage — Notes
+
+- `DoubleInBeckhoff` (in `tango_servers_new/PythonDoubleInBeckhoff/`) — simple live read of one PLC variable via AdsBridge2; no caching, no averaging.
+- `DoubleInBeckhoffAverage` (in `tango_servers_remade/`) — adds on-board PLC averaging with `Start()`/`Abort()` commands and an `IntegrationTime` attribute.
+
+### DoubleInBeckhoffAverage — key points
+- `Start()` writes the averaging flag to the PLC **first**, then sets device state to `RUNNING`. (Previously state was set before the write — a failed write would leave the device stuck in RUNNING.)
+- `Value` read raises on ADS failure (sets FAULT + logs) instead of silently returning −10.0.
+- `IntegrationTime` is validated: must be > 0 and must not exceed **32.767 s** (32767 PLC cycles — the maximum for a 16-bit signed INT, which is what `AverageNum` is in the PLC).
+- `always_executed_hook` surfaces ADS communication failures as FAULT state.
+
+### Beckhoff TwinCAT program snapshots (software_windows/Beckhoff/)
+Four versions of the PLC program are archived: Aug2020, Apr2023, Juni2024, Novi2025.
+All run on a CX-16FC90, 1 ms task cycle, TwinCAT 2.11.
+
+Key symbols accessible via ADS:
+- `AnalogIn1_raw`–`AnalogIn6_raw` (DINT), `AnalogOut1_raw`–`AnalogOut4_raw` (INT)
+- `AOC1`–`AOC8` (INT, 16-bit outputs → ANM200 channels), `ELM1`–`ELM6`
+- `DigitalOut1`–`DigitalOut8` (BOOL)
+- Averaging: `AverageNum`/`Averaging`/`AverageAbort` (three independent engines)
+- Time-trace arrays `TT1`–`TT6`: fixed 400 points — cannot be resized without recompiling
+- Hysteresis: `HystField`, `HystResult1`–`6`, `HystArrayLengthMax` (400 points)
+- `HystFieldOffset` added in **Juni2024** — absent in Aug2020/Apr2023; reading it on older firmware raises an ADS symbol-not-found error
+- Signal processing objects: `P_Lockin`, `P_PLL`, `P_Demod`, `P_FFTraw`, `P_SignalGenerator`
+
+---
+
+## AdsBridge2 — Notes
+
+Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `pyads` (pure Python ADS library).
+
+- All read **and** write commands hold `self.lock` (a `threading.Lock`) — concurrent access is safe.
+- `ReadBool` input: plain variable name (e.g. `MAIN.Averaging`)
+- `WriteBool` input: `"VARIABLE=true"` or `"VARIABLE=false"` — note the asymmetry with ReadBool.
+- `Reconnect` command: closes and reopens the ADS connection without restarting the server process. Use after a PLC reboot or network fault.
+- No automatic reconnection — if the ADS connection drops for any reason other than calling `Reconnect`, all subsequent commands will throw exceptions until `Reconnect` is called.
+
+---
+
 ## What Still Needs Attention
 
 - **D02 firmware on Keithley unit 1**: The real fix is updating to D04. The AutoReconnect in Socket provides a software mitigation but the firmware drop is the root cause.
 - **Network switch/router timeout**: Both Keithleys dropping connections suggests a network device may be killing idle TCP sessions. TCP keepalives (already attempted but reverted due to other bugs) or periodic heartbeat commands would help if confirmed.
 - **ZI.py and ZI2.py** in `tango_servers_new/` still use the old `Device_4Impl` style — not ported to modern API yet.
+- **AdsBridge2 auto-reconnect**: currently requires manual `Reconnect` command after PLC reboot. A watchdog that detects ADS errors and retries would be an improvement.
+- **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.

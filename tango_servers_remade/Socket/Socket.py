@@ -32,10 +32,10 @@ class Socket(Device):
     - AutoReconnect: Reconnect automatically on connection loss (default True)
     """
 
-    Hostname      = device_property(dtype='str',  mandatory=True,       doc="Remote hostname or IP address")
-    Port          = device_property(dtype='int',  mandatory=True,       doc="TCP port number")
-    Readtimeout   = device_property(dtype='int',  default_value=1000,   doc="Read timeout in milliseconds")
-    AutoReconnect = device_property(dtype='bool', default_value=True,   doc="Reconnect automatically on connection loss")
+    Hostname      = device_property(dtype='str',  mandatory=True,      doc="Remote hostname or IP address")
+    Port          = device_property(dtype='int',  mandatory=True,      doc="TCP port number")
+    Readtimeout   = device_property(dtype='int',  default_value=1000,  doc="Read timeout in milliseconds")
+    AutoReconnect = device_property(dtype='bool', default_value=True,  doc="Reconnect automatically on connection loss")
 
     def init_device(self):
         Device.init_device(self)

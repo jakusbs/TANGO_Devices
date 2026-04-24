@@ -9,9 +9,11 @@ import threading
 import PyTango
 import numpy as np
 
-# Upper bound on how long a single half-loop may run on the PLC.
-# IntegrationTime*NumberOfPoints is the expected duration; we give 3x margin.
-MAX_HALFLOOP_TIMEOUT_S = 600.0
+# Safety multiplier on the expected half-loop duration. A half-loop should
+# take ≈ IntegrationTime/2 seconds on the PLC (TANGO attr = full loop = 2x).
+# Timeout = max(HALFLOOP_MIN_TIMEOUT_S, expected × HALFLOOP_TIMEOUT_FACTOR).
+HALFLOOP_TIMEOUT_FACTOR = 5.0
+HALFLOOP_MIN_TIMEOUT_S  = 60.0
 
 
 class HysteresisThread(threading.Thread):
@@ -21,17 +23,23 @@ class HysteresisThread(threading.Thread):
         self.p = parent
         threading.Thread.__init__(self)
 
+    def _halfloop_timeout(self):
+        """Timeout for one PLC half-loop, derived from the IntegrationTime attribute."""
+        expected = (self.p.attr_IntegrationTime_read / 2.0) * HALFLOOP_TIMEOUT_FACTOR
+        return max(HALFLOOP_MIN_TIMEOUT_S, expected)
+
     def _wait_for_plc_idle(self, label):
-        """Poll HystRunning with a hard upper-bound timeout so a stuck PLC flag
-        cannot hang the thread forever. Returns True on normal completion."""
-        deadline = time.time() + MAX_HALFLOOP_TIMEOUT_S
+        """Poll HystRunning with a timeout sized to the measurement parameters, so
+        a stuck PLC flag cannot hang the thread forever. Returns True on normal completion."""
+        timeout_s = self._halfloop_timeout()
+        deadline = time.time() + timeout_s
         pollingTime = self.p.BeckhoffPollingTime
         time.sleep(pollingTime)
         while self.p.ads.ReadBool(self.p.BeckhoffHystRunning):
             if time.time() > deadline:
                 self.p.error_stream(
                     "HysteresisThread: {} timed out after {:.0f}s — aborting".format(
-                        label, MAX_HALFLOOP_TIMEOUT_S))
+                        label, timeout_s))
                 self.p.ads.WriteBool(self.p.BeckhoffHystAbort + "=true")
                 return False
             if self.p.get_state() != PyTango.DevState.RUNNING:

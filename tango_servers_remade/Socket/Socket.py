@@ -126,8 +126,13 @@ class Socket(Device):
     @command()
     def Reconnect(self):
         """Close and reopen the TCP connection."""
-        self._connect()
-        self.set_state(DevState.ON)
+        try:
+            self._connect()
+            self.set_state(DevState.ON)
+            self.set_status("Connected to {}:{}".format(self.Hostname, self.Port))
+        except Exception as e:
+            self.set_state(DevState.FAULT)
+            self.set_status("Reconnect failed: {} — try again in a few seconds".format(e))
 
     @command(dtype_in='DevString', doc_in="String to send",
              dtype_out='DevString', doc_out="Received string")

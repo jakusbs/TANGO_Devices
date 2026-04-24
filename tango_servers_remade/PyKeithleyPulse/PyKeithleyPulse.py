@@ -100,7 +100,7 @@ class PyKeithleyPulse(Device):
     def pulseDuration(self, value):
         self._pulse_duration = value
 
-    @attribute(dtype=float, access=AttrWriteType.WRITE,
+    @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=False,
                unit='mA', doc="Maximum allowed pulse amplitude in mA")
     def maxAmplitude(self):
@@ -209,8 +209,8 @@ class PyKeithleyPulse(Device):
     @command()
     def OFF(self):
         """Disable the current output."""
-        self._wave_running = False
         self.keithley.WriteLine('OUTP OFF')
+        self._wave_running = False
 
     @command()
     def SQUAREWAVE(self):
@@ -221,8 +221,8 @@ class PyKeithleyPulse(Device):
     @command()
     def WAVEOFF(self):
         """Abort the current square-wave output."""
-        self._wave_running = False
         self.keithley.WriteLine('SOUR:WAVE:ABOR')
+        self._wave_running = False
 
 
 def main(args=None, **kwargs):

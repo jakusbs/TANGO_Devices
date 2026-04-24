@@ -8,14 +8,37 @@ import time
 import threading
 import PyTango
 import numpy as np
-             
+
+# Upper bound on how long a single half-loop may run on the PLC.
+# IntegrationTime*NumberOfPoints is the expected duration; we give 3x margin.
+MAX_HALFLOOP_TIMEOUT_S = 600.0
+
+
 class HysteresisThread(threading.Thread):
     lock = threading.Lock()
     def __init__(self,parent):
         # Define some variables if necessary
         self.p = parent
         threading.Thread.__init__(self)
-        
+
+    def _wait_for_plc_idle(self, label):
+        """Poll HystRunning with a hard upper-bound timeout so a stuck PLC flag
+        cannot hang the thread forever. Returns True on normal completion."""
+        deadline = time.time() + MAX_HALFLOOP_TIMEOUT_S
+        pollingTime = self.p.BeckhoffPollingTime
+        time.sleep(pollingTime)
+        while self.p.ads.ReadBool(self.p.BeckhoffHystRunning):
+            if time.time() > deadline:
+                self.p.error_stream(
+                    "HysteresisThread: {} timed out after {:.0f}s — aborting".format(
+                        label, MAX_HALFLOOP_TIMEOUT_S))
+                self.p.ads.WriteBool(self.p.BeckhoffHystAbort + "=true")
+                return False
+            if self.p.get_state() != PyTango.DevState.RUNNING:
+                return False
+            time.sleep(pollingTime)
+        return True
+
     def run(self):
         print ("Starting Hysteresis measurement ({:d} cycles)".format(self.p.attr_Cycles_read))
         self.p.set_state(PyTango.DevState.RUNNING)
@@ -58,10 +81,9 @@ class HysteresisThread(threading.Thread):
             #print "Starting positive loop number "+str(counter)
             self.p.set_status("Starting positive loop number {:d}".format(counter))
             self.p.ads.WriteBool(self.p.BeckhoffHystStart+"=true")
-            # wait until finished
-            time.sleep(pollingTime)
-            while self.p.ads.ReadBool(self.p.BeckhoffHystRunning):
-                time.sleep(pollingTime)
+            # wait until finished (with hard timeout)
+            if not self._wait_for_plc_idle("positive half-loop"):
+                return
             # read results
             result1pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult1Name+",{:d}".format(arraylength))
             result2pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult2Name+",{:d}".format(arraylength))
@@ -76,10 +98,9 @@ class HysteresisThread(threading.Thread):
             #print "Starting negative loop "+str(counter)
             self.p.set_status("Starting negative loop number {:d}".format(counter))
             self.p.ads.WriteBool(self.p.BeckhoffHystStart+"=true")
-            # wait until finished
-            time.sleep(pollingTime)
-            while self.p.ads.ReadBool(self.p.BeckhoffHystRunning):
-                time.sleep(pollingTime)
+            # wait until finished (with hard timeout)
+            if not self._wait_for_plc_idle("negative half-loop"):
+                return
             # read results
             result1neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult1Name+",{:d}".format(arraylength))
             result2neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult2Name+",{:d}".format(arraylength))

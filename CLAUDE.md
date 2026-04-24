@@ -227,10 +227,58 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 
 ---
 
+## Other TANGO servers
+
+### PyRelais
+- ON/OFF commands use a ground → switch → unground sequence. The unground step is wrapped in `try/finally` so it still runs if the middle write fails, leaving the relay in a safe ungrounded state.
+- Default Beckhoff variables use the `MAIN.` prefix (case-sensitive, matches the Beckhoff TwinCAT symbol table).
+
+### Lights
+- Default variables also use the `MAIN.` prefix.
+- Read-modify-state sequence is non-atomic (write first, then read the other LED to set DevState). Concurrent calls can produce a state that disagrees with hardware — callers should serialise LED commands.
+
+### PyHysteresis (in tango_servers_new/)
+- `Abort()` guards with `hasattr` so it can be called safely before `Start()` without raising.
+- `HysteresisThread` has a hard 600 s per half-loop timeout on the `HystRunning` PLC flag so a stuck flag cannot hang the thread forever — it auto-aborts on the PLC side and returns.
+- `BeckhoffHystChannelValue` device property is **mandatory** in practice; comparing to `1` selects DAC1 (longitudinal), anything else falls to DAC2 (polar).
+
+### Socket (remade)
+- `Write` / `WriteRead` / `WriteReadUntil` / `WriteAndRead` all append `\r\n` (match original C++ Socket server).
+- `WriteLine` appends only `\n` (for SCPI instruments like the Keithley).
+- `Readln` strips a trailing `\r` before returning, so callers using `\r\n` protocols get a clean string.
+
+### DG645 (in tango_servers_new/Digital_delay/)
+- SRS DG645 Digital Delay Generator over TCP (default port 5025).
+- Uses an `RLock` because `_reconnect` calls `_query` from inside a held lock.
+- Rate-limited reconnect (`ReconnectInterval` class property, default 5 s) prevents reconnect storms.
+
+### RTV40 (in tango_servers_new/RTV40_pulser/)
+- Kentech RTV40 / RTV30 HV pulse generator over USB virtual COM port.
+- Background poll thread owns all serial reads; attribute getters return cached values only, so TANGO polling cannot interleave with an active write.
+- Wire-unit conversions: amplitude V → 0.1 V integer; pulse width ns → ps integer; clamping is applied before the wire write.
+
+### SmarActMCS2Stage (in tango_servers_new/)
+- Wraps three motor axis proxies. If any `DeviceProxy` fails in `init_device`, the corresponding `_x_proxy` / `_y_proxy` / `_z_proxy` stays `None`; attribute reads and `Stop()` now guard against this and raise a clear `DevFailed` instead of `AttributeError`.
+
+### SetupLock (in tango_servers_new/)
+- Three-way mutex device (green / IR / cryo setups). State flips to `RUNNING` when any `*Busy` flag is True, otherwise `ON`.
+
+### DoubleInBeckhoff / DoubleOutBeckhoff (in tango_servers_new/)
+- Minimal passthrough wrappers around AdsBridge2 `ReadReal` / `WriteReal`. No caching. No error handling — exceptions from AdsBridge propagate directly to the caller.
+
+### ZI / ZI2 (in tango_servers_new/ZurichInstruments_lockin*_correct_read/)
+- Both are Zurich Instruments MFLI lock-in servers. They differ only by device ID (`dev4855` vs `dev30933`) and default host IP.
+- Still on the old `PyTango.Device_4Impl` API. Device IDs are hardcoded in every path string — should be device properties when these are ported.
+- `ZI2` oscillator 3 uses harmonic **1** (not 4 as in `ZI`) per a 2024 change — do not "fix" this without verifying the experimental setup.
+
+---
+
 ## What Still Needs Attention
 
 - **D02 firmware on Keithley unit 1**: The real fix is updating to D04. The AutoReconnect in Socket provides a software mitigation but the firmware drop is the root cause.
 - **Network switch/router timeout**: Both Keithleys dropping connections suggests a network device may be killing idle TCP sessions. TCP keepalives (already attempted but reverted due to other bugs) or periodic heartbeat commands would help if confirmed.
-- **ZI.py and ZI2.py** in `tango_servers_new/` still use the old `Device_4Impl` style — not ported to modern API yet.
+- **ZI.py and ZI2.py** in `tango_servers_new/` still use the old `Device_4Impl` style — not ported to modern API yet. Hardcoded device IDs in all ZI paths should become properties during the port.
 - **AdsBridge2 auto-reconnect**: currently requires manual `Reconnect` command after PLC reboot. A watchdog that detects ADS errors and retries would be an improvement.
 - **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.
+- **Magnet zero-guards**: `HallSensitivity_*` and `AmperePerVolt_*` are mandatory properties, but there is no runtime guard against a user setting them to 0 via Jive. Consider adding checks in `init_device`.
+- **DG645 dev_state()**: polls `LERR?` on every state query, which can be frequent. If the state polling overhead becomes a problem, cache the last known state and only re-query after a timeout.

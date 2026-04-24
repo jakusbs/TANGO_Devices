@@ -29,12 +29,12 @@ class Lights(Device):
     )
     Light1 = device_property(
         dtype='str',
-        default_value='Main.DigitalOut3',
+        default_value='MAIN.DigitalOut3',
         doc="Beckhoff variable for LED 1"
     )
     Light2 = device_property(
         dtype='str',
-        default_value='Main.DigitalOut4',
+        default_value='MAIN.DigitalOut4',
         doc="Beckhoff variable for LED 2"
     )
 

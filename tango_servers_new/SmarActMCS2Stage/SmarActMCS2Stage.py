@@ -100,6 +100,9 @@ class SmarActMCS2Stage(Device):
         self._x = 0.0
         self._y = 0.0
         # PROTECTED REGION ID(SmarActMCS2Stage.init_device) ENABLED START #
+        self._x_proxy = None
+        self._y_proxy = None
+        self._z_proxy = None
         try:
             self._x_proxy = tango.DeviceProxy(self.XMotorDevice)
             self._y_proxy = tango.DeviceProxy(self.YMotorDevice)
@@ -110,6 +113,13 @@ class SmarActMCS2Stage(Device):
             self.set_state(DevState.FAULT)
             self.set_status(f"Failed to connect to motor devices: {e}")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.init_device
+
+    def _require_proxy(self, proxy, axis_name):
+        if proxy is None:
+            tango.Except.throw_exception(
+                f"{axis_name} axis not connected",
+                "Motor proxy unavailable — check XMotorDevice/YMotorDevice/ZMotorDevice properties and restart the server",
+                f"SmarActMCS2Stage::{axis_name}")
 
     def always_executed_hook(self):
         """Method always executed before any TANGO command is executed."""
@@ -141,6 +151,7 @@ class SmarActMCS2Stage(Device):
     def z(self):
         # PROTECTED REGION ID(SmarActMCS2Stage.Z_read) ENABLED START #
         """Return the Z attribute."""
+        self._require_proxy(self._z_proxy, "Z")
         self._z = self._z_proxy.Position
         return self._z
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Z_read
@@ -149,6 +160,7 @@ class SmarActMCS2Stage(Device):
     def z(self, value):
         # PROTECTED REGION ID(SmarActMCS2Stage.Z_write) ENABLED START #
         """Set the Z attribute."""
+        self._require_proxy(self._z_proxy, "Z")
         self._z_proxy.Position = value
         self._wait_for_motor(self._z_proxy, "Z")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Z_write
@@ -161,6 +173,7 @@ class SmarActMCS2Stage(Device):
     def x(self):
         # PROTECTED REGION ID(SmarActMCS2Stage.X_read) ENABLED START #
         """Return the X attribute."""
+        self._require_proxy(self._x_proxy, "X")
         self._x = self._x_proxy.Position
         return self._x
         # PROTECTED REGION END #    //  SmarActMCS2Stage.X_read
@@ -169,6 +182,7 @@ class SmarActMCS2Stage(Device):
     def x(self, value):
         # PROTECTED REGION ID(SmarActMCS2Stage.X_write) ENABLED START #
         """Set the X attribute."""
+        self._require_proxy(self._x_proxy, "X")
         self._x_proxy.Position = value
         self._wait_for_motor(self._x_proxy, "X")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.X_write
@@ -181,6 +195,7 @@ class SmarActMCS2Stage(Device):
     def y(self):
         # PROTECTED REGION ID(SmarActMCS2Stage.Y_read) ENABLED START #
         """Return the Y attribute."""
+        self._require_proxy(self._y_proxy, "Y")
         self._y = self._y_proxy.Position
         return self._y
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Y_read
@@ -189,6 +204,7 @@ class SmarActMCS2Stage(Device):
     def y(self, value):
         # PROTECTED REGION ID(SmarActMCS2Stage.Y_write) ENABLED START #
         """Set the Y attribute."""
+        self._require_proxy(self._y_proxy, "Y")
         self._y_proxy.Position = value
         self._wait_for_motor(self._y_proxy, "Y")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Y_write
@@ -207,6 +223,9 @@ class SmarActMCS2Stage(Device):
         :rtype: PyTango.DevVoid
         """
         for proxy, name in [(self._x_proxy, "X"), (self._y_proxy, "Y"), (self._z_proxy, "Z")]:
+            if proxy is None:
+                self.warn_stream(f"{name} axis not connected, skipping Stop")
+                continue
             try:
                 proxy.command_inout("Stop")
             except Exception as e:

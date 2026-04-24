@@ -61,6 +61,13 @@ class Socket(Device):
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         s.settimeout(self.Readtimeout / 1000.0)
         s.connect((self.Hostname, self.Port))
+        # Enable TCP keepalives so the OS detects silently dropped connections
+        # (e.g. instrument firmware bug) without waiting for a send to fail.
+        # Probes start after 10 s idle, sent every 5 s, 3 attempts → dead in ~25 s.
+        s.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
+        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPIDLE,  10)
+        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPINTVL,  5)
+        s.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_KEEPCNT,    3)
         self._sock = s
 
     def _on_socket_error(self, exc):

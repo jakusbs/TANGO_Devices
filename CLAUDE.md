@@ -267,9 +267,12 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 - Minimal passthrough wrappers around AdsBridge2 `ReadReal` / `WriteReal`. No caching. No error handling — exceptions from AdsBridge propagate directly to the caller.
 
 ### ZI / ZI2 (in tango_servers_new/ZurichInstruments_lockin*_correct_read/)
-- Both are Zurich Instruments MFLI lock-in servers. They differ only by device ID (`dev4855` vs `dev30933`) and default host IP.
-- Still on the old `PyTango.Device_4Impl` API. Device IDs are hardcoded in every path string — should be device properties when these are ported.
-- `ZI2` oscillator 3 uses harmonic **1** (not 4 as in `ZI`) per a 2024 change — do not "fix" this without verifying the experimental setup.
+- Both are Zurich Instruments MFLI lock-in servers. They differ only by default device ID (`dev4855` vs `dev30933`), default host IP and default `Harmonics`.
+- **Ported to modern `tango.server.Device` API.** All ZI paths are now built from a `DeviceId` device property — no source edits needed to point at a different MFLI.
+- New device properties: `DeviceId`, `ZI_Host`, `ZI_Port`, `ZI_ApiLevel`, `Harmonics` (4-element int array).
+- `ZI2` defaults `Harmonics = [1,2,3,1]` — demod 3 uses harmonic 1 (not 4 as in `ZI`) per a 2024 change. Preserved as the property default; do not change without verifying the experimental setup.
+- The companion `ThreadZI` / `ThreadZI2` no longer carry a hardcoded `DEVICE` constant — they pull `DeviceId` from the parent and write into `parent._x[i]` / `parent._y[i]`.
+- Source files keep `from ThreadZI import ThreadZI` (resp. `ThreadZI2`); the `install_*_DAQ.sh` scripts rename `ThreadZI_DAQ.py` → `ThreadZI.py` and rewrite the import to a relative one inside the `ZI_DAQ` / `ZI2_DAQ` package. The launch entry point (`ZI_DAQ <instance>`) and Jive class names (`ZI`, `ZI2`) are unchanged.
 
 ---
 
@@ -277,7 +280,6 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 
 - **D02 firmware on Keithley unit 1**: The real fix is updating to D04. The AutoReconnect in Socket provides a software mitigation but the firmware drop is the root cause.
 - **Network switch/router timeout**: Both Keithleys dropping connections suggests a network device may be killing idle TCP sessions. TCP keepalives (already attempted but reverted due to other bugs) or periodic heartbeat commands would help if confirmed.
-- **ZI.py and ZI2.py** in `tango_servers_new/` still use the old `Device_4Impl` style — not ported to modern API yet. Hardcoded device IDs in all ZI paths should become properties during the port.
 - **AdsBridge2 auto-reconnect**: currently requires manual `Reconnect` command after PLC reboot. A watchdog that detects ADS errors and retries would be an improvement.
 - **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.
 - **Magnet zero-guards**: `HallSensitivity_*` and `AmperePerVolt_*` are mandatory properties, but there is no runtime guard against a user setting them to 0 via Jive. Consider adding checks in `init_device`.

@@ -169,6 +169,17 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.port   = int(self.LocalPort)
         self.server = (self.AttoIP, int(self.AttoPort))
 
+        # Stop the daemon before closing the socket it uses, to avoid
+        # recvfrom errors on the old socket and port-in-use on rebind.
+        if hasattr(self, 'listener') and self.listener.is_alive():
+            self.listener.stop()
+            self.listener.join(timeout=2.0)
+        if hasattr(self, 's'):
+            try:
+                self.s.close()
+            except Exception:
+                pass
+
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.s.settimeout(5.0)
         self.s.bind((self.host, self.port))

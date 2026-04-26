@@ -123,10 +123,12 @@ def main():
 
             # ── Dispatch ─────────────────────────────────────────────────
             if data in ('start', 'ON'):
-                connected = connect_attodry()
-                # Acknowledge so TANGO does not stall on recvfrom
-                reply = 'ON' if connected else 'FAULT'
-                s.sendto(reply.encode('utf-8'), addr)
+                # ACK immediately so TANGO's 5 s recvfrom timeout is not hit.
+                # connect_attodry() can take up to CONNECT_WAIT_S seconds; TANGO
+                # will get socket.timeout on its Read polls during that window
+                # but the daemon retries, so it recovers automatically.
+                s.sendto(b'ON', addr)
+                connect_attodry()
 
             elif data == 'Read':
                 # Check connection health first

@@ -92,8 +92,9 @@ The C++ socket was non-blocking (`set_non_blocking(true)`). The Python socket is
 2. `SOUR:WAVE:ABOR` sent at start of `SINEWAVE`/`SQUAREWAVE`/`_rearm()` to ensure IDLE state
 3. Recovery sequence in `init_device()`: `SOUR:WAVE:ABOR` + `OUTP OFF` (wrapped in try/except — instrument may not be ready immediately)
 4. 100 ms `time.sleep(0.1)` before `SOUR:WAVE:ARM` in all waveform commands
-5. PyKeithleyPulse: `_wave_running` flag — writing any parameter while wave is running auto-rearmsthe wave (no manual WAVEOFF/SQUAREWAVE cycle needed)
+5. PyKeithleyPulse: `_wave_running` flag — writing any parameter while wave is running auto-rearms the wave (no manual WAVEOFF/SQUAREWAVE cycle needed)
 6. PyKeithleyPulse: `range` attribute added (same strings as PyKeithley/PyKeithley2)
+7. PyKeithleyPulse: `pulseDuration` is a **computed** attribute (not stored independently) — reads as `1 / (2 × frequency)`, writes update `frequency` via `frequency = 1 / (2 × duration)`. Changing either `frequency` or `pulseDuration` updates the other automatically. Writing ≤ 0 raises `DevFailed`. Not memorized (derived value).
 
 ### PyKeithleyPulse range map
 ```python
@@ -134,6 +135,28 @@ The main TANGO thread reads attributes directly from the cache (no lock needed f
 
 ### Socket timeout
 `Connect()` sets `s.settimeout(5.0)` before the handshake `recvfrom()`. If the Windows PC does not respond within 5 s the device goes to `OFF` cleanly instead of blocking forever. The daemon thread's `recvfrom()` also benefits — it catches `socket.timeout` and simply sleeps for the poll interval before retrying.
+
+### Connect() port collision fix
+`Connect()` stops the daemon listener and closes the existing socket **before** rebinding the port. Without this, calling `Connect()` a second time (e.g. manually from Jive) while the daemon was already running raised `OSError: Address already in use`. Sequence:
+1. `listener.stop()` + `listener.join(timeout=2.0)` — daemon exits cleanly
+2. `self.s.close()` — releases the port
+3. New socket created, bound, timeout set, handshake performed
+
+### AttoSocket2.py (Windows bridge, tango_servers_old/software_windows/)
+Windows-side UDP bridge between the TANGO AttoDRY server and the PyAttoDRY DLL. Key design points:
+- **Immediate ACK**: on `'start'` or `'ON'`, sends `b'ON'` reply *before* calling `connect_attodry()`. TANGO `Connect()` has a 5 s `recvfrom` timeout; the DLL init can take up to 10 s — without this the TANGO side always timed out and went to OFF.
+- **Socket timeout**: `s.settimeout(10.0)` — no longer blocks forever if TANGO disappears.
+- **Last-good-packet cache** (`last_packet`): if `build_packet()` fails or the DLL is not yet connected, the last successfully built `ReadA…N` packet is resent so the TANGO daemon does not stall on a missing reply.
+- **Connection health check**: before each `Read`, calls `isDeviceConnected()` + `isDeviceInitialised()`; skips the DLL read and resends last packet if unhealthy.
+- **All DLL calls wrapped in try/except** — a single failing DLL call does not crash the bridge.
+- **No 10 ms inter-read sleeps** — DLL reads are from LabVIEW's cached state, so delays are unnecessary.
+- Configuration constants at top of file: `HOST`, `PORT`, `COM_PORT`, `RECV_TIMEOUT_S`, `CONNECT_WAIT_S`.
+
+### Known freeze points in the AttoDRY chain
+Three identified freeze points:
+1. **ACK timing** (fixed): AttoSocket2 must ACK before TANGO's 5 s timeout; DLL init is done in the background.
+2. **Port collision** (fixed): TANGO `Connect()` now stops the daemon and closes the socket before rebinding.
+3. **LabVIEW DLL deadlock** (unmitigatable in software): if `AttoDRYLib.dll` deadlocks internally, `build_packet()` or `connect_attodry()` will block forever. Only fix is restarting the Windows process. The bridge's socket timeout prevents the TANGO side from freezing in this case — TANGO sees repeated socket timeouts and stays in its last state.
 
 ---
 

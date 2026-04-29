@@ -126,7 +126,7 @@ class Socket(Device):
         """Read available data from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(4096).decode()
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -148,7 +148,7 @@ class Socket(Device):
         self._require_connected()
         try:
             self._sock.sendall((argin + '\r\n').encode())
-            return self._sock.recv(4096).decode()
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -165,7 +165,7 @@ class Socket(Device):
                 buf += c
             if buf.endswith(b'\r'):
                 buf = buf[:-1]
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -184,7 +184,7 @@ class Socket(Device):
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -204,7 +204,7 @@ class Socket(Device):
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -224,7 +224,7 @@ class Socket(Device):
         self._require_connected()
         try:
             self._sock.sendall((argin + '\r\n').encode())
-            return self._sock.recv(4096).decode()
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -241,7 +241,7 @@ class Socket(Device):
                 if not c or c == b'\x00':
                     break
                 buf += c
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -250,7 +250,7 @@ class Socket(Device):
         """Read a single character from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(1).decode()
+            return self._sock.recv(1).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 

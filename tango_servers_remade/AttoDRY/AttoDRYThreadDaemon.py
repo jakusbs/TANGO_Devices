@@ -20,7 +20,7 @@ class AttoDRYThread(threading.Thread):
         super(AttoDRYThread, self).__init__()
         self.daemon = True
         self.p = parent
-        self.bufsize = 256
+        self.bufsize = 512
         self._running = True
         self.interval = 0.2
 
@@ -69,9 +69,15 @@ class AttoDRYThread(threading.Thread):
             m_gRHP = re.search(r"K(.*)L",  pkt)
             m_gVHP = re.search(r"L(.*)M",  pkt)
             m_gVSP = re.search(r"M(.*)N",  pkt)
+            m_iGBT = re.search(r"N(.*)O",  pkt)
+            m_iSEP = re.search(r"O(.*)P",  pkt)
+            m_iSRE = re.search(r"P(.*)Q",  pkt)
+            m_iZF  = re.search(r"Q(.*)R",  pkt)
+            m_iPmp = re.search(r"R(.*)S",  pkt)
 
             if not all([m_iCF, m_iCT, m_iCP, m_gMF, m_gST, m_gVT,
-                        m_gMT, m_gRT, m_gCoP, m_gCIP, m_gRHP, m_gVHP, m_gVSP]):
+                        m_gMT, m_gRT, m_gCoP, m_gCIP, m_gRHP, m_gVHP, m_gVSP,
+                        m_iGBT, m_iSEP, m_iSRE, m_iZF, m_iPmp]):
                 time.sleep(self.interval)
                 continue
 
@@ -89,6 +95,11 @@ class AttoDRYThread(threading.Thread):
                 gRHP = float(m_gRHP.group(1))
                 gVHP = float(m_gVHP.group(1))
                 gVSP = float(m_gVSP.group(1))
+                iGBT = int(m_iGBT.group(1))
+                iSEP = int(m_iSEP.group(1))
+                iSRE = int(m_iSRE.group(1))
+                iZF  = int(m_iZF.group(1))
+                iPmp = int(m_iPmp.group(1))
             except Exception as e:
                 try:
                     self.p.error_stream("Listener conversion error: " + str(e))
@@ -99,19 +110,24 @@ class AttoDRYThread(threading.Thread):
 
             # Update internal state mirrors and TANGO attribute caches atomically
             with self.p._cache_lock:
-                self.p.is_controlling_field       = iCF
-                self.p.is_controlling_temperature = iCT
-                self.p.is_persistent_mode_set     = iCP
-                self.p.current_magnetic_field     = gMF
-                self.p.sample_temperature         = gST
-                self.p.vti_temperature            = gVT
-                self.p.magnet_temperature         = gMT
-                self.p.reservoir_temperature      = gRT
-                self.p.cryostat_out_pressure      = gCoP
-                self.p.cryostat_in_pressure       = gCIP
-                self.p.reservoir_heater_power     = gRHP
-                self.p.vti_heater_power           = gVHP
-                self.p.sample_heater_power        = gVSP
+                self.p.is_controlling_field         = iCF
+                self.p.is_controlling_temperature   = iCT
+                self.p.is_persistent_mode_set       = iCP
+                self.p.current_magnetic_field       = gMF
+                self.p.sample_temperature           = gST
+                self.p.vti_temperature              = gVT
+                self.p.magnet_temperature           = gMT
+                self.p.reservoir_temperature        = gRT
+                self.p.cryostat_out_pressure        = gCoP
+                self.p.cryostat_in_pressure         = gCIP
+                self.p.reservoir_heater_power       = gRHP
+                self.p.vti_heater_power             = gVHP
+                self.p.sample_heater_power          = gVSP
+                self.p.going_to_base_temperature    = bool(iGBT)
+                self.p.sample_exchange_in_progress  = bool(iSEP)
+                self.p.sample_ready_to_exchange     = bool(iSRE)
+                self.p.zeroing_field                = bool(iZF)
+                self.p.pumping                      = bool(iPmp)
 
                 self.p.attr_toggleMagneticFieldControl_read   = bool(iCF)
                 self.p.attr_toggleFulltemperatureControl_read = bool(iCT)
@@ -126,5 +142,10 @@ class AttoDRYThread(threading.Thread):
                 self.p.attr_ReservoirHeaterPower_read         = gRHP
                 self.p.attr_VtiHeaterPower_read               = gVHP
                 self.p.attr_SampleHeaterPower_read            = gVSP
+                self.p.attr_GoingToBaseTemperature_read       = bool(iGBT)
+                self.p.attr_SampleExchangeInProgress_read     = bool(iSEP)
+                self.p.attr_SampleReadyToExchange_read        = bool(iSRE)
+                self.p.attr_ZeroingField_read                 = bool(iZF)
+                self.p.attr_Pumping_read                      = bool(iPmp)
 
             time.sleep(self.interval)

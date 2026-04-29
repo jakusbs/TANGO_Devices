@@ -67,6 +67,11 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.attr_toggleMagneticFieldControl_read   = False
         self.attr_toggleFulltemperatureControl_read = False
         self.attr_togglePersistentMode_read         = False
+        self.attr_GoingToBaseTemperature_read       = False
+        self.attr_SampleExchangeInProgress_read     = False
+        self.attr_SampleReadyToExchange_read        = False
+        self.attr_ZeroingField_read                 = False
+        self.attr_Pumping_read                      = False
 
         # Internal state mirrors
         self.is_controlling_field        = 0
@@ -82,6 +87,11 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.reservoir_heater_power      = 0.0
         self.vti_heater_power            = 0.0
         self.sample_heater_power         = 0.0
+        self.going_to_base_temperature   = False
+        self.sample_exchange_in_progress = False
+        self.sample_ready_to_exchange    = False
+        self.zeroing_field               = False
+        self.pumping                     = False
 
     def always_executed_hook(self):
         pass
@@ -158,6 +168,21 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     def read_SampleHeaterPower(self, attr):
         attr.set_value(self.attr_SampleHeaterPower_read)
 
+    def read_GoingToBaseTemperature(self, attr):
+        attr.set_value(self.attr_GoingToBaseTemperature_read)
+
+    def read_SampleExchangeInProgress(self, attr):
+        attr.set_value(self.attr_SampleExchangeInProgress_read)
+
+    def read_SampleReadyToExchange(self, attr):
+        attr.set_value(self.attr_SampleReadyToExchange_read)
+
+    def read_ZeroingField(self, attr):
+        attr.set_value(self.attr_ZeroingField_read)
+
+    def read_Pumping(self, attr):
+        attr.set_value(self.attr_Pumping_read)
+
     def read_attr_hardware(self, data):
         pass
 
@@ -225,6 +250,22 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.listener.start()
         self.info_stream("Listener thread started.")
 
+    def GoToBaseTemperature(self):
+        """Tell the AttoDRY to cool to its base temperature."""
+        self.s.sendto('W006'.encode('utf-8'), self.server)
+
+    def StartSampleExchange(self):
+        """Start the sample exchange sequence (warms up sample space)."""
+        self.s.sendto('W007'.encode('utf-8'), self.server)
+
+    def SweepFieldToZero(self):
+        """Sweep the magnetic field to zero."""
+        self.s.sendto('W008'.encode('utf-8'), self.server)
+
+    def Cancel(self):
+        """Cancel any ongoing operation (base temp, sample exchange, zeroing)."""
+        self.s.sendto('W009'.encode('utf-8'), self.server)
+
 
 class AttoDRYClass(PyTango.DeviceClass):
 
@@ -238,9 +279,13 @@ class AttoDRYClass(PyTango.DeviceClass):
     }
 
     cmd_list = {
-        'Connect':    [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
-        'Disconnect': [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
-        'Start':      [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'Connect':             [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'Disconnect':          [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'Start':               [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'GoToBaseTemperature': [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'StartSampleExchange': [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'SweepFieldToZero':    [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
+        'Cancel':              [[PyTango.DevVoid, "none"], [PyTango.DevVoid, "none"]],
     }
 
     attr_list = OrderedDict([
@@ -257,6 +302,11 @@ class AttoDRYClass(PyTango.DeviceClass):
         ('SampleHeaterPower',            [[PyTango.DevDouble,  PyTango.SCALAR, PyTango.READ]]),
         ('VtiHeaterPower',               [[PyTango.DevDouble,  PyTango.SCALAR, PyTango.READ]]),
         ('ReservoirHeaterPower',         [[PyTango.DevDouble,  PyTango.SCALAR, PyTango.READ]]),
+        ('GoingToBaseTemperature',       [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
+        ('SampleExchangeInProgress',     [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
+        ('SampleReadyToExchange',        [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
+        ('ZeroingField',                 [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
+        ('Pumping',                      [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
     ])
 
 

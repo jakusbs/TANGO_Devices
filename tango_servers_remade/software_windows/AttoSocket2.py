@@ -3,19 +3,23 @@
 # into PyAttoDRY DLL calls.
 #
 # Protocol (UDP, all ASCII):
-#   TANGO → Windows  "start"   — initial handshake (ignored after first)
-#   TANGO → Windows  "ON"      — begin()+Connect() AttoDRY
-#   TANGO → Windows  "Read"    — fetch telemetry, reply ReadA…N packet
+#   TANGO → Windows  "start"    — initial handshake (ignored after first)
+#   TANGO → Windows  "ON"       — begin()+Connect() AttoDRY
+#   TANGO → Windows  "Read"     — fetch telemetry, reply ReadA…S packet
 #   TANGO → Windows  "W001 <v>" — set magnetic field setpoint (T)
 #   TANGO → Windows  "W002 <v>" — set temperature setpoint (K)
-#   TANGO → Windows  "W003"    — toggleMagneticFieldControl
-#   TANGO → Windows  "W004"    — toggleFullTemperatureControl
-#   TANGO → Windows  "W005"    — togglePersistentMode
-#   TANGO → Windows  "OFF"     — Disconnect()+end(), close socket
+#   TANGO → Windows  "W003"     — toggleMagneticFieldControl
+#   TANGO → Windows  "W004"     — toggleFullTemperatureControl
+#   TANGO → Windows  "W005"     — togglePersistentMode
+#   TANGO → Windows  "W006"     — goToBaseTemperature
+#   TANGO → Windows  "W007"     — startSampleExchange
+#   TANGO → Windows  "W008"     — sweepFieldToZero
+#   TANGO → Windows  "W009"     — Cancel (cancel any ongoing operation)
+#   TANGO → Windows  "OFF"      — Disconnect()+end(), close socket
 #
 # Reply packet (on "Read"):
 #   ReadA<iCF>B<iCT>C<iCP>D<gMF>E<gST>F<gVT>G<gMT>H<gRT>
-#        I<gCoP>J<gCIP>K<gRHP>L<gVHP>M<gVSP>N
+#        I<gCoP>J<gCIP>K<gRHP>L<gVHP>M<gVSP>N<iGBT>O<iSEP>P<iSRE>Q<iZF>R<iPmp>S
 
 from PyAttoDRY import AttoDRY
 import socket
@@ -31,7 +35,7 @@ CONNECT_WAIT_S  = 10       # seconds to wait for AttoDRY to initialise after Con
 
 
 def build_packet():
-    """Read all telemetry from the DLL and return the ReadA…N packet string.
+    """Read all telemetry from the DLL and return the ReadA…S packet string.
     Returns None if any call fails."""
     try:
         iCF  = AttoDRY.isControllingField()
@@ -47,6 +51,11 @@ def build_packet():
         gRHP = AttoDRY.getReservoirHeaterPower()
         gVHP = AttoDRY.getVtiHeaterPower()
         gVSP = AttoDRY.getSampleHeaterPower()
+        iGBT = AttoDRY.isGoingToBaseTemperature()
+        iSEP = AttoDRY.isSampleExchangeInProgress()
+        iSRE = AttoDRY.isSampleReadyToExchange()
+        iZF  = AttoDRY.isZeroingField()
+        iPmp = AttoDRY.isPumping()
     except Exception as e:
         print(f'[AttoSocket2] Read error: {e}')
         return None
@@ -65,7 +74,12 @@ def build_packet():
         + 'K'   + str(gRHP)
         + 'L'   + str(gVHP)
         + 'M'   + str(gVSP)
-        + 'N'
+        + 'N'   + str(iGBT)
+        + 'O'   + str(iSEP)
+        + 'P'   + str(iSRE)
+        + 'Q'   + str(iZF)
+        + 'R'   + str(iPmp)
+        + 'S'
     )
 
 
@@ -161,6 +175,14 @@ def main():
                         AttoDRY.toggleFullTemperatureControl()
                     elif data == 'W005':
                         AttoDRY.togglePersistentMode()
+                    elif data == 'W006':
+                        AttoDRY.goToBaseTemperature()
+                    elif data == 'W007':
+                        AttoDRY.startSampleExchange()
+                    elif data == 'W008':
+                        AttoDRY.sweepFieldToZero()
+                    elif data == 'W009':
+                        AttoDRY.Cancel()
                 except Exception as e:
                     print(f'[AttoSocket2] Write command {data!r} failed: {e}')
 

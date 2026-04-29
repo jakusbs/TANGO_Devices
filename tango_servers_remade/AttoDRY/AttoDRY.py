@@ -233,7 +233,7 @@ class AttoDRYClass(PyTango.DeviceClass):
     device_property_list = {
         'AttoIP':    [PyTango.DevString, 'IP of the Windows PC running AttoDRY2100 software', ["192.168.1.8"]],
         'AttoPort':  [PyTango.DevDouble, 'UDP port on the Windows PC', [11000]],
-        'LocalIP':   [PyTango.DevString, 'IP address of the local network interface to bind to', ["192.168.1.7"]],
+        'LocalIP':   [PyTango.DevString, 'IP address of the local network interface to bind to (0.0.0.0 = all interfaces)', ["0.0.0.0"]],
         'LocalPort': [PyTango.DevLong,   'UDP port to bind on this machine', [11005]],
     }
 

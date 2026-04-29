@@ -39,8 +39,7 @@ class AttoDRY(PyTango.LatestDeviceImpl):
                                     21  isZeroingField
                                     22  isPumping
                                     23  isSystemRunning
-                                    24  isExchangeHeaterOn
-                                    25  isSampleHeaterOn
+                                    24  isSampleHeaterOn
     """
 
     def __init__(self, cl, name):
@@ -102,7 +101,6 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.attr_ZeroingField_read             = False
         self.attr_Pumping_read                  = False
         self.attr_SystemRunning_read            = False
-        self.attr_ExchangeHeaterOn_read         = False
         self.attr_SampleHeaterOn_read           = False
 
         # Internal mirrors used by AttoDRYCheck
@@ -240,9 +238,6 @@ class AttoDRY(PyTango.LatestDeviceImpl):
 
     def read_SystemRunning(self, attr):
         attr.set_value(self.attr_SystemRunning_read)
-
-    def read_ExchangeHeaterOn(self, attr):
-        attr.set_value(self.attr_ExchangeHeaterOn_read)
 
     def read_SampleHeaterOn(self, attr):
         attr.set_value(self.attr_SampleHeaterOn_read)
@@ -415,7 +410,6 @@ class AttoDRYClass(PyTango.DeviceClass):
         ('ZeroingField',                 [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
         ('SampleExchangeInProgress',     [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
         ('SampleReadyToExchange',        [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
-        ('ExchangeHeaterOn',             [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
         ('SampleHeaterOn',               [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
     ])
 

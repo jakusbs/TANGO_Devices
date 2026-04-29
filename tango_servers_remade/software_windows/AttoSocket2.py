@@ -87,7 +87,6 @@ def build_packet():
         _call(AttoDRY.isZeroingField),
         _call(AttoDRY.isPumping),
         _call(AttoDRY.isSystemRunning),
-        _call(AttoDRY.isExchangeHeaterOn, silent=True),   # not supported on all units
         _call(AttoDRY.isSampleHeaterOn),
     ]
     return 'Read:' + ','.join(str(f) for f in fields)

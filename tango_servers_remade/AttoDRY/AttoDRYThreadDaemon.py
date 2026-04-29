@@ -25,7 +25,7 @@ import threading
 
 import PyTango
 
-_N_FIELDS = 26
+_N_FIELDS = 25
 
 
 class AttoDRYThread(threading.Thread):
@@ -99,8 +99,7 @@ class AttoDRYThread(threading.Thread):
                 iZF  = int(parts[21])
                 iPmp = int(parts[22])
                 iSR  = int(parts[23])
-                iEH  = int(parts[24])
-                iSH  = int(parts[25])
+                iSH  = int(parts[24])
             except Exception as e:
                 try:
                     self.p.error_stream("Listener parse error: " + str(e))
@@ -151,8 +150,7 @@ class AttoDRYThread(threading.Thread):
                 self.p.attr_SampleReadyToExchange_read    = bool(iSRE)
                 self.p.attr_ZeroingField_read             = bool(iZF)
                 self.p.attr_Pumping_read                  = bool(iPmp)
-                self.p.attr_SystemRunning_read            = bool(iSR)
-                self.p.attr_ExchangeHeaterOn_read         = bool(iEH)
-                self.p.attr_SampleHeaterOn_read           = bool(iSH)
+                self.p.attr_SystemRunning_read  = bool(iSR)
+                self.p.attr_SampleHeaterOn_read = bool(iSH)
 
             time.sleep(self.interval)

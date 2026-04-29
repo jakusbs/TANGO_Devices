@@ -110,7 +110,7 @@ do not change those without verifying on the actual hardware.
 
 - Connects via UDP (not TCP) to a Windows PC running AttoDRY2100 software
 - Properties: `AttoIP` (Windows PC IP), `AttoPort` (UDP port on PC), `LocalIP` (local NIC to bind to), `LocalPort` (local UDP port)
-- `LocalIP` and `LocalPort` were hardcoded in the old server (`192.168.1.7`, `11005`). They are now device properties with those same defaults — no database change needed for existing setups.
+- `LocalIP` default is `0.0.0.0` (bind all interfaces) — works on any machine without updating the database. `LocalPort` default is `11005`.
 - The `install.sh` copies three files: `AttoDRY` (executable), `AttoDRYThreadDaemon.py`, `AttoDRYCheck.py`
 
 ### Two-thread architecture

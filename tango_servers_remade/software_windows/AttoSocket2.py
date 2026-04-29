@@ -49,46 +49,44 @@ CONNECT_WAIT_S = 10             # seconds to wait for AttoDRY to initialise
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def build_packet():
-    """Read all telemetry from the DLL and return the CSV packet string.
-    Returns None if any call fails."""
+def _call(func, default=0):
+    """Call a DLL function, returning default if it raises any exception."""
     try:
-        iCF  = AttoDRY.isControllingField()
-        iCT  = AttoDRY.isControllingTemperature()
-        iCP  = AttoDRY.isPersistentModeSet()
-        gMF  = AttoDRY.getMagneticField()
-        gST  = AttoDRY.getSampleTemperature()
-        gVT  = AttoDRY.getVtiTemperature()
-        gMT  = AttoDRY.get4KStageTemperature()
-        g40K = AttoDRY.get40KStageTemperature()
-        gRT  = AttoDRY.getReservoirTemperature()
-        gCIP = AttoDRY.getCryostatInPressure()
-        gDP  = AttoDRY.getDumpPressure()
-        gRHP = AttoDRY.getReservoirHeaterPower()
-        gVHP = AttoDRY.getVtiHeaterPower()
-        gVSP = AttoDRY.getSampleHeaterPower()
-        gMFS = AttoDRY.getMagneticFieldSetPoint()
-        gUT  = AttoDRY.getUserTemperature()
-        gTPF = AttoDRY.getTurbopumpFrequency()
-        gCoP = AttoDRY.getCryostatOutPressure()
-        iGBT = AttoDRY.isGoingToBaseTemperature()
-        iSEP = AttoDRY.isSampleExchangeInProgress()
-        iSRE = AttoDRY.isSampleReadyToExchange()
-        iZF  = AttoDRY.isZeroingField()
-        iPmp = AttoDRY.isPumping()
-        iSR  = AttoDRY.isSystemRunning()
-        iEH  = AttoDRY.isExchangeHeaterOn()
-        iSH  = AttoDRY.isSampleHeaterOn()
+        return func()
     except Exception as e:
-        print(f'[AttoSocket2] Read error: {e}')
-        return None
+        print(f'[AttoSocket2] {func.__name__} failed (returning {default}): {e}')
+        return default
 
+
+def build_packet():
+    """Read all telemetry from the DLL and return the CSV packet string."""
     fields = [
-        iCF, iCT, iCP,
-        gMF, gST, gVT, gMT, g40K, gRT,
-        gCIP, gDP, gRHP, gVHP, gVSP,
-        gMFS, gUT, gTPF, gCoP,
-        iGBT, iSEP, iSRE, iZF, iPmp, iSR, iEH, iSH,
+        _call(AttoDRY.isControllingField),
+        _call(AttoDRY.isControllingTemperature),
+        _call(AttoDRY.isPersistentModeSet),
+        _call(AttoDRY.getMagneticField),
+        _call(AttoDRY.getSampleTemperature),
+        _call(AttoDRY.getVtiTemperature),
+        _call(AttoDRY.get4KStageTemperature),
+        _call(AttoDRY.get40KStageTemperature),
+        _call(AttoDRY.getReservoirTemperature),
+        _call(AttoDRY.getCryostatInPressure),
+        _call(AttoDRY.getDumpPressure),
+        _call(AttoDRY.getReservoirHeaterPower),
+        _call(AttoDRY.getVtiHeaterPower),
+        _call(AttoDRY.getSampleHeaterPower),
+        _call(AttoDRY.getMagneticFieldSetPoint),
+        _call(AttoDRY.getUserTemperature),
+        _call(AttoDRY.getTurbopumpFrequency),
+        _call(AttoDRY.getCryostatOutPressure),
+        _call(AttoDRY.isGoingToBaseTemperature),
+        _call(AttoDRY.isSampleExchangeInProgress),
+        _call(AttoDRY.isSampleReadyToExchange),
+        _call(AttoDRY.isZeroingField),
+        _call(AttoDRY.isPumping),
+        _call(AttoDRY.isSystemRunning),
+        _call(AttoDRY.isExchangeHeaterOn),
+        _call(AttoDRY.isSampleHeaterOn),
     ]
     return 'Read:' + ','.join(str(f) for f in fields)
 

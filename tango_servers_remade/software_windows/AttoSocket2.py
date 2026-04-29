@@ -20,7 +20,9 @@
 #   TANGO → Windows  "W012"       — toggleSampleTemperatureControl
 #   TANGO → Windows  "OFF"        — Disconnect()+end(), close socket
 #
-# Reply packet (on "Read") — CSV, 26 fields after "Read:":
+# Reply packet (on "Read") — numeric CSV after "Read:", then |-separated string fields:
+#   Read:<f0>,...,<f24>|<error_status>|<error_message>|<action_message>
+#
 #   idx  field                      idx  field
 #    0   isControllingField          13  getSampleHeaterPower
 #    1   isControllingTemperature    14  getMagneticFieldSetPoint
@@ -33,8 +35,12 @@
 #    8   getReservoirTemperature     21  isZeroingField
 #    9   getCryostatInPressure       22  isPumping
 #   10   getDumpPressure             23  isSystemRunning
-#   11   getReservoirHeaterPower     24  isExchangeHeaterOn
-#   12   getVtiHeaterPower           25  isSampleHeaterOn
+#   11   getReservoirHeaterPower     24  isSampleHeaterOn
+#   12   getVtiHeaterPower
+#   string fields (after |):
+#    s0  getAttodryErrorStatus (int)
+#    s1  getAttodryErrorMessage
+#    s2  getActionMessage
 
 from PyAttoDRY import AttoDRY
 import socket
@@ -89,7 +95,10 @@ def build_packet():
         _call(AttoDRY.isSystemRunning),
         _call(AttoDRY.isSampleHeaterOn),
     ]
-    return 'Read:' + ','.join(str(f) for f in fields)
+    err_status = _call(AttoDRY.getAttodryErrorStatus, default=0)
+    err_msg    = _call(AttoDRY.getAttodryErrorMessage, default='').replace('|', ' ').replace('\r', '').replace('\n', ' ').strip()
+    act_msg    = _call(AttoDRY.getActionMessage,       default='').replace('|', ' ').replace('\r', '').replace('\n', ' ').strip()
+    return 'Read:' + ','.join(str(f) for f in fields) + f'|{err_status}|{err_msg}|{act_msg}'
 
 
 def connect_attodry():

@@ -23,7 +23,7 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     Server connecting to the AttoDRY2100 via UDP.
     Daemon thread sends 'Read' every 0.2 s and parses the CSV reply packet.
 
-    UDP packet fields (index order, comma-separated after 'Read:'):
+    UDP packet: "Read:<f0>,...,<f24>|<error_status>|<error_message>|<action_message>"
       0  isControllingField          9  getCryostatInPressure
       1  isControllingTemperature   10  getDumpPressure
       2  isPersistentModeSet        11  getReservoirHeaterPower
@@ -40,6 +40,7 @@ class AttoDRY(PyTango.LatestDeviceImpl):
                                     22  isPumping
                                     23  isSystemRunning
                                     24  isSampleHeaterOn
+    string fields (after |): getAttodryErrorStatus, getAttodryErrorMessage, getActionMessage
     """
 
     def __init__(self, cl, name):
@@ -102,6 +103,11 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.attr_Pumping_read                  = False
         self.attr_SystemRunning_read            = False
         self.attr_SampleHeaterOn_read           = False
+
+        # ── Error / status messages ───────────────────────────────────────
+        self.attr_ErrorStatus_read   = 0
+        self.attr_ErrorMessage_read  = ''
+        self.attr_ActionMessage_read = ''
 
         # Internal mirrors used by AttoDRYCheck
         self.current_magnetic_field     = 0.0
@@ -241,6 +247,19 @@ class AttoDRY(PyTango.LatestDeviceImpl):
 
     def read_SampleHeaterOn(self, attr):
         attr.set_value(self.attr_SampleHeaterOn_read)
+
+    # =========================================================================
+    # Error / status messages
+    # =========================================================================
+
+    def read_ErrorStatus(self, attr):
+        attr.set_value(self.attr_ErrorStatus_read)
+
+    def read_ErrorMessage(self, attr):
+        attr.set_value(self.attr_ErrorMessage_read)
+
+    def read_ActionMessage(self, attr):
+        attr.set_value(self.attr_ActionMessage_read)
 
     def read_attr_hardware(self, data):
         pass
@@ -411,6 +430,11 @@ class AttoDRYClass(PyTango.DeviceClass):
         ('SampleExchangeInProgress',     [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
         ('SampleReadyToExchange',        [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
         ('SampleHeaterOn',               [[PyTango.DevBoolean, PyTango.SCALAR, PyTango.READ]]),
+
+        # ── Error / status messages ───────────────────────────────────────
+        ('ErrorStatus',                  [[PyTango.DevLong,    PyTango.SCALAR, PyTango.READ]]),
+        ('ErrorMessage',                 [[PyTango.DevString,  PyTango.SCALAR, PyTango.READ]]),
+        ('ActionMessage',                [[PyTango.DevString,  PyTango.SCALAR, PyTango.READ]]),
     ])
 
 

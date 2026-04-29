@@ -69,7 +69,9 @@ class AttoDRYThread(threading.Thread):
                 time.sleep(self.interval)
                 continue
 
-            parts = pkt[5:].split(',')
+            # Split off optional string section: "Read:<csv>|<err_status>|<err_msg>|<act_msg>"
+            sections = pkt.split('|')
+            parts = sections[0][5:].split(',')
             if len(parts) < _N_FIELDS:
                 time.sleep(self.interval)
                 continue
@@ -152,5 +154,14 @@ class AttoDRYThread(threading.Thread):
                 self.p.attr_Pumping_read                  = bool(iPmp)
                 self.p.attr_SystemRunning_read  = bool(iSR)
                 self.p.attr_SampleHeaterOn_read = bool(iSH)
+
+                # Error / status messages (optional string section)
+                if len(sections) >= 4:
+                    try:
+                        self.p.attr_ErrorStatus_read  = int(sections[1])
+                        self.p.attr_ErrorMessage_read = sections[2]
+                        self.p.attr_ActionMessage_read = sections[3]
+                    except Exception:
+                        pass
 
             time.sleep(self.interval)

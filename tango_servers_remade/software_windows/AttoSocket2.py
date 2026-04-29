@@ -49,12 +49,14 @@ CONNECT_WAIT_S = 10             # seconds to wait for AttoDRY to initialise
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _call(func, default=0):
-    """Call a DLL function, returning default if it raises any exception."""
+def _call(func, default=0, silent=False):
+    """Call a DLL function, returning default if it raises any exception.
+    Pass silent=True for calls known to be unsupported on some hardware."""
     try:
         return func()
     except Exception as e:
-        print(f'[AttoSocket2] {func.__name__} failed (returning {default}): {e}')
+        if not silent:
+            print(f'[AttoSocket2] {func.__name__} failed (returning {default}): {e}')
         return default
 
 
@@ -85,7 +87,7 @@ def build_packet():
         _call(AttoDRY.isZeroingField),
         _call(AttoDRY.isPumping),
         _call(AttoDRY.isSystemRunning),
-        _call(AttoDRY.isExchangeHeaterOn),
+        _call(AttoDRY.isExchangeHeaterOn, silent=True),   # not supported on all units
         _call(AttoDRY.isSampleHeaterOn),
     ]
     return 'Read:' + ','.join(str(f) for f in fields)

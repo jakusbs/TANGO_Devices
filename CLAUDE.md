@@ -174,10 +174,18 @@ Three identified freeze points:
 
 ## ANC300 — Notes
 
-- Communicates via Socket proxy (Telnet, TCP port **7230** on the ANC300)
-- Commands use ASCII text; must end with `\r\n` (DOS line endings) — `Socket.Write` already appends `\r\n` ✓
+- Connects **directly via TCP** (Telnet, port **7230**) — no Socket proxy required
+- Properties: `Hostname` (mandatory, IP of ANC300), `Port` (default 7230), `Readtimeout` (default 1000 ms), `password` (default `123456`), `addr_x/y/z` (axis addresses, defaults 4/5/6)
+- On connect: discards Telnet IAC negotiation bytes (first recv), then sends password and checks for `'Authorization success'` in reply
+- Commands use ASCII text with `\r\n` terminator — `_send()` appends this internally
 - Command response timeout per manual: ~30 ms — the 100 ms sleeps in read helpers are safe
-- Default password: `123456`
+- `Reconnect` command: closes and reopens the socket; safe to call while other measurements are running (independent of Socket device)
+- The old `Proxy` device property may still exist in the TANGO database — it is ignored by the new code
+
+### Why direct TCP instead of Socket proxy
+The Socket server is shared between Keithleys; restarting it while a measurement is running would
+drop those connections. ANC300 has its own dedicated TCP connection, so it benefits from owning
+the socket directly rather than going through an intermediary.
 
 ### Position writes (px/py/pz)
 Position is tracked as a **relative step counter** — the hardware has no absolute encoder.

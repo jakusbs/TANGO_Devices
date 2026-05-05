@@ -53,7 +53,7 @@ class PyRelais(Device):
 
     # ---- Attributes -----------------------------------------------------
 
-    @attribute(dtype=int, access=AttrWriteType.READ_WRITE,
+    @attribute(dtype=tango.DevLong, access=AttrWriteType.READ_WRITE,
                doc="Write odd value → ON, even value → OFF")
     def switchvar(self):
         return self._switchvar

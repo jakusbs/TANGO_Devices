@@ -10,17 +10,10 @@ con = True
 
 # create socket.
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# s.settimeout(10)
 s.bind((host, port))
+		
 
-print("Looking for inital bits...")
-try:
-	data, addr = s.recvfrom(128)
-except KeyboardInterrupt:
-    print("Abbruch durch Nutzer")
-    con = False
-    s.close()
-print(' ')
+data, addr = s.recvfrom(128)
 print('The server started and ready to accept requests from intermag-d15...')
 print('The IP address and port are: ' + str(addr))
 
@@ -57,42 +50,7 @@ while con == True:
 		time.sleep(0.01)
 		gST = AttoDRY.getSampleTemperature()
 		time.sleep(0.01)
-		# Niklas 2025
-		gVT = AttoDRY.getVtiTemperature()
-		time.sleep(0.01)
-		gMT = AttoDRY.get4KStageTemperature()
-		time.sleep(0.01)
-		gRT = AttoDRY.getReservoirTemperature()
-		time.sleep(0.01)
-		gCoP = AttoDRY.getCryostatOutPressure()
-		time.sleep(0.01)
-		gCIP = AttoDRY.getCryostatInPressure()
-		time.sleep(0.01)
-		gRHP = AttoDRY.getReservoirHeaterPower()
-		time.sleep(0.01)
-		gVHP = AttoDRY.getVtiHeaterPower()
-		time.sleep(0.01)
-		gVSP = AttoDRY.getSampleHeaterPower()
-		time.sleep(0.01)
-		### End
-
-		package = (
-			        'Read'                    # Indicates a read command
-			      + 'A' + str(iCF)            # A: isControllingField
-			      + 'B' + str(iCT)            # B: isControllingTemperature
-			      + 'C' + str(iCP)            # C: isPersistentModeSet
-			      + 'D' + str(gMF)            # D: current magnetic field
-			      + 'E' + str(gST)            # E: sample temperature
-			      + 'F' + str(gVT)            # F: VTI temperature
-			      + 'G' + str(gMT)            # G: magnet temperature
-			      + 'H' + str(gRT)            # H: reservoir temperature
-			      + 'I' + str(gCoP)           # I: cryostat outlet pressure
-			      + 'J' + str(gCIP)           # J: cryostat inlet pressure
-			      + 'K' + str(gRHP)           # K: reservoir heater power
-			      + 'L' + str(gVHP)           # L: VTI heater power
-			      + 'M' + str(gVSP)           # M: sample heater power
-			      + 'N'                       # Terminator
-			    )
+		package = 'ReadA'+str(iCF)+'B'+str(iCT)+'C'+str(iCP)+'D'+str(gMF)+'E'+str(gST)+'F'
 		#print(package)
 		s.sendto(package.encode('utf-8'),addr)
 		#print(package)
@@ -112,15 +70,11 @@ while con == True:
 
 	# s.sendto(data.encode('utf-8'),addr)
 
-
 	if data == 'OFF':
 		# disconnects and ends everything...
-		print(' ')
-		print('Disconnecting Device...')
 		AttoDRY.Disconnect()
 		AttoDRY.end()
 		# close the connection...
 		s.sendto(data.encode('utf-8'),addr)
 		con = False
 		s.close()
-		print('    ... done.')

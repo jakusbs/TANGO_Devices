@@ -56,7 +56,6 @@ class PyKeithleyPulse(Device):
     def init_device(self):
         Device.init_device(self)
         self._pulse_amplitude = 0.0
-        self._pulse_duration  = 0.0
         self._max_amplitude   = 105.0
         self._compliance      = 10.0
         self._autorange       = False
@@ -91,16 +90,22 @@ class PyKeithleyPulse(Device):
             self._rearm()
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
-               memorized=True, hw_memorized=True,
-               unit='s', doc="Pulse duration / half-period in s (informational; use frequency to control timing)")
+               unit='s', doc="Pulse half-period in s; writing updates frequency (= 1 / (2 * duration))")
     def pulseDuration(self):
-        return self._pulse_duration
+        return 1.0 / (2.0 * self._frequency)
 
     @pulseDuration.write
     def pulseDuration(self, value):
-        self._pulse_duration = value
+        if value <= 0:
+            tango.Except.throw_exception(
+                "Invalid pulseDuration",
+                "pulseDuration must be > 0 s",
+                "PyKeithleyPulse::pulseDuration")
+        self._frequency = 1.0 / (2.0 * value)
+        if self._wave_running:
+            self._rearm()
 
-    @attribute(dtype=float, access=AttrWriteType.WRITE,
+    @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=False,
                unit='mA', doc="Maximum allowed pulse amplitude in mA")
     def maxAmplitude(self):
@@ -209,8 +214,8 @@ class PyKeithleyPulse(Device):
     @command()
     def OFF(self):
         """Disable the current output."""
-        self._wave_running = False
         self.keithley.WriteLine('OUTP OFF')
+        self._wave_running = False
 
     @command()
     def SQUAREWAVE(self):
@@ -221,8 +226,8 @@ class PyKeithleyPulse(Device):
     @command()
     def WAVEOFF(self):
         """Abort the current square-wave output."""
-        self._wave_running = False
         self.keithley.WriteLine('SOUR:WAVE:ABOR')
+        self._wave_running = False
 
 
 def main(args=None, **kwargs):

@@ -28,39 +28,39 @@ class Magnet(Device):
     """
 
     AdsBridge = device_property(
-        dtype='str', default_value='adsBridge2',
+        dtype='str', default_value='hpp-n42/beckhoff/adsBridge2',
         doc="TANGO path to AdsBridge2 device"
     )
     AmperePerVolt_polar = device_property(
-        dtype=float, mandatory=True,
+        dtype=float, default_value=1.0,
         doc="Calibration: Ampere per Volt for polar coil [A/V]"
     )
     AmperePerVolt_longitudinal = device_property(
-        dtype=float, mandatory=True,
+        dtype=float, default_value=1.0,
         doc="Calibration: Ampere per Volt for longitudinal coil [A/V]"
     )
     BeckhoffVariable_polar = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AnalogOut2',
         doc="PLC LREAL variable for polar DAC output"
     )
     BeckhoffVariable_longitudinal = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AnalogOut1',
         doc="PLC LREAL variable for longitudinal DAC output"
     )
     BeckhoffVariable_polarfield = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AnalogIn6',
         doc="PLC LREAL variable for polar Hall-probe ADC input"
     )
     BeckhoffVariable_longitudinalfield = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AnalogIn5',
         doc="PLC LREAL variable for longitudinal Hall-probe ADC input"
     )
     HallSensitivity_polar = device_property(
-        dtype=float, mandatory=True,
+        dtype=float, default_value=5.0,
         doc="Hall probe sensitivity for polar geometry [V/T]"
     )
     HallSensitivity_longitudinal = device_property(
-        dtype=float, mandatory=True,
+        dtype=float, default_value=5.0,
         doc="Hall probe sensitivity for longitudinal geometry [V/T]"
     )
 

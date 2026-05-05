@@ -335,13 +335,13 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
             
         #----- PROTECTED REGION END -----#	//	PyHysteresis.Start
     def Abort(self):
-        """ 
+        """
         """
         self.debug_stream("In Abort()")
         #----- PROTECTED REGION ID(PyHysteresis.Abort) ENABLED START -----#
-        if self.thread.is_alive() == True:
+        if hasattr(self, 'thread') and self.thread is not None and self.thread.is_alive():
             self.thread.stop()
-            
+
         self.set_state(PyTango.DevState.ON)
         #----- PROTECTED REGION END -----#	//	PyHysteresis.Abort
 

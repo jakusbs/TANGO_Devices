@@ -126,7 +126,7 @@ class Socket(Device):
         """Read available data from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(4096).decode()
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -148,13 +148,13 @@ class Socket(Device):
         self._require_connected()
         try:
             self._sock.sendall((argin + '\r\n').encode())
-            return self._sock.recv(4096).decode()
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
-    @command(dtype_out='DevString', doc_out="Line read from socket (strips trailing newline)")
+    @command(dtype_out='DevString', doc_out="Line read from socket (strips trailing CRLF)")
     def Readln(self):
-        """Read characters until a newline character is received."""
+        """Read characters until a newline character is received. Strips trailing \\r if present (CRLF protocols)."""
         self._require_connected()
         try:
             buf = b''
@@ -163,7 +163,9 @@ class Socket(Device):
                 if not c or c == b'\n':
                     break
                 buf += c
-            return buf.decode()
+            if buf.endswith(b'\r'):
+                buf = buf[:-1]
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -182,7 +184,7 @@ class Socket(Device):
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -202,7 +204,7 @@ class Socket(Device):
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -218,11 +220,11 @@ class Socket(Device):
     @command(dtype_in='DevString', doc_in="String to send",
              dtype_out='DevString', doc_out="Received string")
     def WriteRead(self, argin):
-        """Write a string (newline appended) then read the response."""
+        """Write a string (CRLF appended, matching C++) then read the response."""
         self._require_connected()
         try:
-            self._sock.sendall((argin + '\n').encode())
-            return self._sock.recv(4096).decode()
+            self._sock.sendall((argin + '\r\n').encode())
+            return self._sock.recv(4096).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -239,7 +241,7 @@ class Socket(Device):
                 if not c or c == b'\x00':
                     break
                 buf += c
-            return buf.decode()
+            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 
@@ -248,7 +250,7 @@ class Socket(Device):
         """Read a single character from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(1).decode()
+            return self._sock.recv(1).decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
 

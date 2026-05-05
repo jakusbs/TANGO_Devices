@@ -27,17 +27,17 @@ class PyRelais(Device):
 
     AdsBridge = device_property(
         dtype='str',
-        default_value='adsBridge2',
+        default_value='hpp-N42/beckhoff/adsBridge2',
         doc="TANGO path to AdsBridge2 device"
     )
     BeckhoffVariable = device_property(
         dtype='str',
-        default_value='Main.DigitalOut2',
+        default_value='MAIN.DigitalOut2',
         doc="Beckhoff variable for relay coil"
     )
     BeckhoffGround = device_property(
         dtype='str',
-        default_value='Main.DigitalOut7',
+        default_value='MAIN.DigitalOut7',
         doc="Beckhoff variable to ground the relay contact before switching"
     )
 
@@ -53,7 +53,7 @@ class PyRelais(Device):
 
     # ---- Attributes -----------------------------------------------------
 
-    @attribute(dtype=int, access=AttrWriteType.READ_WRITE,
+    @attribute(dtype=tango.DevShort, access=AttrWriteType.READ_WRITE,
                doc="Write odd value → ON, even value → OFF")
     def switchvar(self):
         return self._switchvar
@@ -70,22 +70,26 @@ class PyRelais(Device):
 
     @command()
     def ON(self):
-        """Set relay to ON (ground → set → unground)."""
-        self.ads.WriteBool(self.BeckhoffGround + '=true')
-        time.sleep(0.05)
-        self.ads.WriteBool(self.BeckhoffVariable + '=true')
-        time.sleep(0.05)
-        self.ads.WriteBool(self.BeckhoffGround + '=false')
+        """Set relay to ON (ground → set → unground). unground always runs."""
+        try:
+            self.ads.WriteBool(self.BeckhoffGround + '=true')
+            time.sleep(0.05)
+            self.ads.WriteBool(self.BeckhoffVariable + '=true')
+            time.sleep(0.05)
+        finally:
+            self.ads.WriteBool(self.BeckhoffGround + '=false')
         self.set_state(DevState.ON)
 
     @command()
     def OFF(self):
-        """Set relay to OFF (ground → clear → unground)."""
-        self.ads.WriteBool(self.BeckhoffGround + '=true')
-        time.sleep(0.05)
-        self.ads.WriteBool(self.BeckhoffVariable + '=false')
-        time.sleep(0.05)
-        self.ads.WriteBool(self.BeckhoffGround + '=false')
+        """Set relay to OFF (ground → clear → unground). unground always runs."""
+        try:
+            self.ads.WriteBool(self.BeckhoffGround + '=true')
+            time.sleep(0.05)
+            self.ads.WriteBool(self.BeckhoffVariable + '=false')
+            time.sleep(0.05)
+        finally:
+            self.ads.WriteBool(self.BeckhoffGround + '=false')
         self.set_state(DevState.STANDBY)
 
 

@@ -14,6 +14,7 @@ from tango.server import Device, command, attribute, device_property, run
 __all__ = ["DoubleInBeckhoffAverage", "main"]
 
 CYCLES_PER_SECOND = 1000.0
+MAX_INTEGRATION_CYCLES = 32767  # PLC AverageNum is INT (16-bit signed)
 
 
 class DoubleInBeckhoffAverage(Device):
@@ -30,7 +31,7 @@ class DoubleInBeckhoffAverage(Device):
     """
 
     AdsBridge = device_property(
-        dtype='str', default_value='adsBridge2',
+        dtype='str', default_value='hpp-N42/beckhoff/adsBridge2',
         doc="TANGO path to AdsBridge2 device"
     )
     BeckhoffVariable = device_property(
@@ -38,15 +39,15 @@ class DoubleInBeckhoffAverage(Device):
         doc="PLC LREAL variable with the averaged result"
     )
     BeckhoffAveraging = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.Averaging',
         doc="PLC BOOL flag that is True while averaging is running"
     )
     BeckhoffAverageNum = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AverageNum',
         doc="PLC INT variable: number of cycles to average"
     )
     BeckhoffAverageAbort = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AverageAbort',
         doc="PLC BOOL flag — write True to abort averaging"
     )
 
@@ -67,10 +68,13 @@ class DoubleInBeckhoffAverage(Device):
             if averaging:
                 self.set_state(DevState.RUNNING)
             else:
-                self.set_state(DevState.ON)
-                self.set_status("Ready to read average of " + self.BeckhoffVariable)
-        except Exception:
-            pass
+                if self.get_state() == DevState.RUNNING:
+                    self.set_state(DevState.ON)
+                    self.set_status("Ready to read average of " + self.BeckhoffVariable)
+        except Exception as e:
+            self.error_stream("DoubleInBeckhoffAverage: hook ADS error: {}".format(e))
+            self.set_state(DevState.FAULT)
+            self.set_status("ADS communication error: {}".format(e))
 
     # ---- Attributes -----------------------------------------------------
 
@@ -78,8 +82,11 @@ class DoubleInBeckhoffAverage(Device):
     def Value(self):
         try:
             self._value = self.ads.ReadReal(self.BeckhoffVariable)
-        except Exception:
-            self._value = -10.0
+        except Exception as e:
+            self.error_stream("DoubleInBeckhoffAverage: Value read failed: {}".format(e))
+            self.set_state(DevState.FAULT)
+            self.set_status("ADS read error: {}".format(e))
+            raise
         return self._value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -94,7 +101,19 @@ class DoubleInBeckhoffAverage(Device):
 
     @IntegrationTime.write
     def IntegrationTime(self, value):
+        if value <= 0:
+            tango.Except.throw_exception(
+                'Invalid IntegrationTime',
+                'IntegrationTime must be positive',
+                'DoubleInBeckhoffAverage::IntegrationTime.write'
+            )
         num_cycles = int(value * CYCLES_PER_SECOND)
+        if num_cycles > MAX_INTEGRATION_CYCLES:
+            tango.Except.throw_exception(
+                'IntegrationTime too large',
+                'Requested {} cycles exceeds PLC INT limit of {}'.format(num_cycles, MAX_INTEGRATION_CYCLES),
+                'DoubleInBeckhoffAverage::IntegrationTime.write'
+            )
         self.ads.WriteShort("{}={}".format(self.BeckhoffAverageNum, num_cycles))
         self._integration_time = value
 
@@ -103,9 +122,9 @@ class DoubleInBeckhoffAverage(Device):
     @command()
     def Start(self):
         """Start averaging on the PLC."""
+        self.ads.WriteBool(self.BeckhoffAveraging + '=true')
         self.set_state(DevState.RUNNING)
         self.set_status("Averaging")
-        self.ads.WriteBool(self.BeckhoffAveraging + '=true')
 
     @command()
     def Abort(self):

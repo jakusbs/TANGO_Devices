@@ -40,6 +40,7 @@
 
 #include <tango.h>
 #include <MCSControl.h>
+using namespace std;
 #include <ctime>
 
 /*----- PROTECTED REGION END -----*/	//	Smaract.h

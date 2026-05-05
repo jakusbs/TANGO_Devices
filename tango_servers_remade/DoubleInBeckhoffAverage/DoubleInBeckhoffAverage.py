@@ -39,15 +39,15 @@ class DoubleInBeckhoffAverage(Device):
         doc="PLC LREAL variable with the averaged result"
     )
     BeckhoffAveraging = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.Averaging',
         doc="PLC BOOL flag that is True while averaging is running"
     )
     BeckhoffAverageNum = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AverageNum',
         doc="PLC INT variable: number of cycles to average"
     )
     BeckhoffAverageAbort = device_property(
-        dtype='str', mandatory=True,
+        dtype='str', default_value='MAIN.AverageAbort',
         doc="PLC BOOL flag — write True to abort averaging"
     )
 

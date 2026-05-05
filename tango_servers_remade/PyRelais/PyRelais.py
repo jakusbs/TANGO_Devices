@@ -27,7 +27,7 @@ class PyRelais(Device):
 
     AdsBridge = device_property(
         dtype='str',
-        default_value='adsBridge2',
+        default_value='hpp-N42/beckhoff/adsBridge2',
         doc="TANGO path to AdsBridge2 device"
     )
     BeckhoffVariable = device_property(

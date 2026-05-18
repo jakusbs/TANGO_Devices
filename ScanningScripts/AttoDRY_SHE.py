@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # AttoDRY_SHE.py
 # SHE measurement using the AttoDRY superconducting magnet.
 # Repeats N cycles of +, -, -, + field polarity, running one scan per step.
@@ -15,7 +16,7 @@ from collections import deque
 filepath = "/home/intermag/Data2/Scanlists/"
 filename = filepath + "20260518_SAMPLE_SHE_AttoDRY.txt"
 
-# Field magnitude (T) — script applies +field and -field
+# Field magnitude (T) - script applies +field and -field
 FieldMagnitude = 0.3  # T
 
 # Number of +,-,-,+ cycles
@@ -29,7 +30,7 @@ current_range = "20mA"
 # Wait after field settles before starting scan (s)
 extra_wait_after_settle = 60.0  # superconducting magnet needs time after ramp
 
-# Mirror copy path — leave empty string to skip
+# Mirror copy path - leave empty string to skip
 serverpath = "/mnt/trmoke/"
 mirrorpath = serverpath + "Scanning/Data/Scanlists_S2/"
 
@@ -134,7 +135,7 @@ def is_Scan_done():
             state = Scan.State()
             done = state != PyTango.DevState.MOVING
             if state == PyTango.DevState.FAULT:
-                print("Scanserver FAULT — aborting")
+                print("Scanserver FAULT - aborting")
                 exit()
         except Exception as e:
             print("Scanserver state timeout: " + str(e))
@@ -142,7 +143,7 @@ def is_Scan_done():
             timeouts += 1
         time.sleep(2)
     if timeouts == 10:
-        print("10 consecutive timeouts from scanserver — aborting")
+        print("10 consecutive timeouts from scanserver - aborting")
         exit()
 
 
@@ -176,7 +177,7 @@ except Exception as e:
     print("AttoDRY not reachable: " + str(e))
     exit()
 
-# Set up Keithley once — stays on throughout
+# Set up Keithley once - stays on throughout
 set_current()
 
 for n in range(Cycles):
@@ -220,7 +221,7 @@ for n in range(Cycles):
         mirrorScanlist()
 
     except KeyboardInterrupt:
-        print('\n*** Keyboard interrupt — waiting for current scan to finish ...')
+        print('\n*** Keyboard interrupt - waiting for current scan to finish ...')
         is_Scan_done()
         print("Last scan: " + str(Scan.generatedNexusFileName))
         mirrorScanlist()
@@ -235,4 +236,4 @@ for n in range(Cycles):
 
 print("\n*** Sequence finished: " + filename + " ***\n")
 Keithley.OFF()
-# Leave magnet at last field — caller decides whether to ramp to zero
+# Leave magnet at last field - caller decides whether to ramp to zero

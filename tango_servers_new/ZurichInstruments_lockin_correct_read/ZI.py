@@ -36,7 +36,7 @@ class ZI(Device):
     - ZI_Host: IP address of the MFLI
     - ZI_Port: Data server port (default 8004)
     - ZI_ApiLevel: ziDAQ API level (default 6)
-    - Harmonics: harmonic order for each demodulator 0..3 (default [1,2,3,4])
+    - Harmonics: harmonic order for each demodulator 0..3 (default [1,2,3,1])
     """
 
     DeviceId = device_property(
@@ -61,8 +61,9 @@ class ZI(Device):
     )
     Harmonics = device_property(
         dtype=(int,),
-        default_value=[1, 2, 3, 4],
-        doc="Harmonic order for demods 0..3 (4 ints)"
+        default_value=[1, 2, 3, 1],
+        doc="Harmonic order for demods 0..3 (4 ints). "
+            "Default [1,2,3,1]: demod 4 locks to ExtRef 2 at the fundamental."
     )
 
     # ---- lifecycle ------------------------------------------------------

@@ -187,6 +187,7 @@ class PyKeithleyPulse(Device):
         """Abort, reconfigure, and restart the square wave with current parameters."""
         amp_a = min(self._pulse_amplitude, self._max_amplitude) / 1000.0
         self.keithley.WriteLine('SOUR:WAVE:ABOR')
+        time.sleep(0.05)                                  # instrument needs time to leave ARMED/RUNNING
         self.keithley.WriteLine('SOUR:WAVE:FUNC SQU')
         self.keithley.WriteLine('SOUR:WAVE:AMPL ' + str(amp_a))
         self.keithley.WriteLine('SOUR:WAVE:FREQ ' + str(self._frequency))

@@ -153,6 +153,7 @@ class PyKeithley2(Device):
     def SINEWAVE(self):
         """Configure and start sine-wave output with trigger on line 3."""
         self.keithley.WriteLine('SOUR:WAVE:ABOR')         # ensure IDLE state
+        time.sleep(0.05)                                  # instrument needs time to leave ARMED/RUNNING
         self.keithley.WriteLine('SOUR:WAVE:FUNC SIN')
         self.keithley.WriteLine('SOUR:WAVE:FREQ ' + str(self._frequency))
         self.keithley.WriteLine('SOUR:WAVE:AMPL ' + str(self._amplitude / 1000.0))

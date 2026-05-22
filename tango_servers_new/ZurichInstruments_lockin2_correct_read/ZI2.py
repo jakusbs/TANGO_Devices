@@ -8,6 +8,7 @@ DeviceId, host and harmonics are device properties so the same code base
 can drive any MFLI without source edits.
 """
 
+import threading
 import time
 
 import numpy as np
@@ -83,6 +84,8 @@ class ZI2(Device):
         self._filterorder = 1
         self._settlingtime = 0.0
         self._last_collect_s = 0.0
+        self.daq = None
+        self._daq_lock = threading.Lock()
 
         try:
             self.daq = ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel)
@@ -96,8 +99,25 @@ class ZI2(Device):
             self._refresh_cached_settings()
             self.set_state(DevState.ON)
         except Exception as e:
+            self.daq = None
             self.set_state(DevState.FAULT)
             self.set_status(f"MFLI init failed: {e}")
+
+    def delete_device(self):
+        with self._daq_lock:
+            if self.daq is not None:
+                try:
+                    self.daq.disconnect()
+                except Exception:
+                    pass
+                self.daq = None
+
+    def _require_daq(self):
+        if self.daq is None:
+            tango.Except.throw_exception(
+                "No_connection",
+                "MFLI not connected — use Reconnect command.",
+                "ZI2")
 
     def _path(self, suffix):
         """Build a full ZI node path: '/dev30933/<suffix>'."""
@@ -123,13 +143,17 @@ class ZI2(Device):
         self._amplitude    = self.daq.getDouble(self._path('sigouts/0/amplitudes/0'))
 
     def always_executed_hook(self):
-        pass
+        if self.daq is None and self.get_state() != DevState.FAULT:
+            self.set_state(DevState.FAULT)
+            self.set_status("MFLI not connected")
 
     # ---- attribute helpers ---------------------------------------------
 
     def _settling_time(self):
-        tc = self.daq.getDouble(self._path('demods/0/timeconstant'))
-        order = int(self.daq.getDouble(self._path('demods/0/order')))
+        self._require_daq()
+        with self._daq_lock:
+            tc = self.daq.getDouble(self._path('demods/0/timeconstant'))
+            order = int(self.daq.getDouble(self._path('demods/0/order')))
         return SETTLE_99.get(order, 16.0) * tc, tc, order
 
     # ---- demodulator readouts (populated by ThreadZI2) -----------------
@@ -161,10 +185,12 @@ class ZI2(Device):
 
     @Amplitude.write
     def Amplitude(self, value):
-        self.daq.setDouble(self._path('sigouts/0/amplitudes/0'), value)
-        self.daq.setInt(self._path('sigouts/0/on'), 1)
-        time.sleep(0.2)
-        self._amplitude = self.daq.getDouble(self._path('sigouts/0/amplitudes/0'))
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('sigouts/0/amplitudes/0'), value)
+            self.daq.setInt(self._path('sigouts/0/on'), 1)
+            time.sleep(0.2)
+            self._amplitude = self.daq.getDouble(self._path('sigouts/0/amplitudes/0'))
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=False)
@@ -173,9 +199,11 @@ class ZI2(Device):
 
     @frequency.write
     def frequency(self, value):
-        self.daq.setDouble(self._path('oscs/0/freq'), value)
-        time.sleep(0.2)
-        self._frequency = self.daq.getDouble(self._path('oscs/0/freq'))
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('oscs/0/freq'), value)
+            time.sleep(0.2)
+            self._frequency = self.daq.getDouble(self._path('oscs/0/freq'))
 
     # ---- demod sampling/integration ------------------------------------
 
@@ -185,10 +213,12 @@ class ZI2(Device):
 
     @samplingrate.write
     def samplingrate(self, value):
-        for i in range(4):
-            self.daq.setDouble(self._path(f'demods/{i}/rate'), value)
-        time.sleep(0.2)
-        self._samplingrate = self.daq.getDouble(self._path('demods/0/rate'))
+        self._require_daq()
+        with self._daq_lock:
+            for i in range(4):
+                self.daq.setDouble(self._path(f'demods/{i}/rate'), value)
+            time.sleep(0.2)
+            self._samplingrate = self.daq.getDouble(self._path('demods/0/rate'))
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE)
     def integrationtime(self):
@@ -217,28 +247,36 @@ class ZI2(Device):
     def phase1(self): return self._phase[0]
     @phase1.write
     def phase1(self, value):
-        self.daq.setDouble(self._path('demods/0/phaseshift'), value)
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('demods/0/phaseshift'), value)
         self._phase[0] = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE)
     def phase2(self): return self._phase[1]
     @phase2.write
     def phase2(self, value):
-        self.daq.setDouble(self._path('demods/1/phaseshift'), value)
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('demods/1/phaseshift'), value)
         self._phase[1] = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE)
     def phase3(self): return self._phase[2]
     @phase3.write
     def phase3(self, value):
-        self.daq.setDouble(self._path('demods/2/phaseshift'), value)
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('demods/2/phaseshift'), value)
         self._phase[2] = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE)
     def phase4(self): return self._phase[3]
     @phase4.write
     def phase4(self, value):
-        self.daq.setDouble(self._path('demods/3/phaseshift'), value)
+        self._require_daq()
+        with self._daq_lock:
+            self.daq.setDouble(self._path('demods/3/phaseshift'), value)
         self._phase[3] = value
 
     # ---- read-only filter info -----------------------------------------
@@ -246,13 +284,17 @@ class ZI2(Device):
     @attribute(dtype=float, access=AttrWriteType.READ, unit='s',
                doc="Demod 0 low-pass filter time constant (read from hardware)")
     def timeconstant(self):
-        self._timeconstant = self.daq.getDouble(self._path('demods/0/timeconstant'))
+        self._require_daq()
+        with self._daq_lock:
+            self._timeconstant = self.daq.getDouble(self._path('demods/0/timeconstant'))
         return self._timeconstant
 
     @attribute(dtype=int, access=AttrWriteType.READ,
                doc="Demod 0 filter order 1-8 (read from hardware)")
     def filterorder(self):
-        self._filterorder = int(self.daq.getDouble(self._path('demods/0/order')))
+        self._require_daq()
+        with self._daq_lock:
+            self._filterorder = int(self.daq.getDouble(self._path('demods/0/order')))
         return self._filterorder
 
     @attribute(dtype=float, access=AttrWriteType.READ, unit='s',
@@ -267,11 +309,33 @@ class ZI2(Device):
     @command()
     def Start(self):
         """Run one integration cycle in a background thread."""
+        self._require_daq()
         if self.get_state() == DevState.ON:
             self.thread = ThreadZI2(self)
             self.thread.start()
         else:
             self.warn_stream("Thread is already running.")
+
+    @command()
+    def Reconnect(self):
+        """Re-initialise the ziDAQ connection after a disconnection or web-UI reset."""
+        self.set_state(DevState.FAULT)
+        with self._daq_lock:
+            if self.daq is not None:
+                try:
+                    self.daq.disconnect()
+                except Exception:
+                    pass
+            self.daq = None
+            try:
+                self.daq = ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel)
+                self._configure_demods()
+                self._refresh_cached_settings()
+            except Exception as e:
+                self.daq = None
+                self.set_status(f"Reconnect failed: {e}")
+                return
+        self.set_state(DevState.ON)
 
 
 def main(args=None, **kwargs):

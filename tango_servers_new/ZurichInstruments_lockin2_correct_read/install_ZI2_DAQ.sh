@@ -64,7 +64,7 @@ setup(
     install_requires=[
         'pytango',
         'numpy',
-        'zhinst',
+        'zhinst>=25,<26',
     ],
 )
 EOF

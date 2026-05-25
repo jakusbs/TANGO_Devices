@@ -66,6 +66,14 @@ class ZI(Device):
         doc="Harmonic order for demods 0..3 (4 ints). "
             "Default [1,2,3,1]: demod 4 locks to ExtRef 2 at the fundamental."
     )
+    AllowVersionMismatch = device_property(
+        dtype=bool,
+        default_value=False,
+        doc="Set True when the MFLI firmware (LabOne data server) version does not "
+            "match the installed zhinst Python package version. "
+            "Passes allow_version_mismatch=True to ziDAQServer. "
+            "Use as a temporary workaround until the firmware is updated."
+    )
 
     # ---- lifecycle ------------------------------------------------------
 
@@ -86,7 +94,7 @@ class ZI(Device):
         self._daq_lock = threading.Lock()
 
         try:
-            self.daq = ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel)
+            self.daq = self._connect_daq()
         except Exception as e:
             self.set_state(DevState.FAULT)
             self.set_status(f"ziDAQServer connect failed: {e}")
@@ -109,6 +117,19 @@ class ZI(Device):
                 except Exception:
                     pass
                 self.daq = None
+
+    def _connect_daq(self):
+        """Create a new ziDAQServer, optionally bypassing the firmware version check."""
+        if self.AllowVersionMismatch:
+            try:
+                return ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel,
+                                            allow_version_mismatch=True)
+            except TypeError:
+                self.warn_stream(
+                    'AllowVersionMismatch=True but ziPython does not support the '
+                    'allow_version_mismatch kwarg — upgrade zhinst or update firmware. '
+                    'Attempting connection without version bypass.')
+        return ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel)
 
     def _require_daq(self):
         if self.daq is None:
@@ -326,7 +347,7 @@ class ZI(Device):
                     pass
             self.daq = None
             try:
-                self.daq = ziPython.ziDAQServer(self.ZI_Host, self.ZI_Port, self.ZI_ApiLevel)
+                self.daq = self._connect_daq()
                 self._configure_demods()
                 self._refresh_cached_settings()
             except Exception as e:

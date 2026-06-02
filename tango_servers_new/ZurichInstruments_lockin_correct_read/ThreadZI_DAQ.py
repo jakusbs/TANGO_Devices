@@ -24,16 +24,21 @@ class ThreadZI(threading.Thread):
         self.p.set_state(tango.DevState.RUNNING)
 
         try:
-            daq = self.p.daq
+            if self.p.daq is None:
+                self.p.error_stream('ThreadZI: daq is None, aborting')
+                self.p.set_state(tango.DevState.FAULT)
+                return
+
             device = self.p.DeviceId
             collect_time = max(self.p._integrationtime, MIN_COLLECT)
             timeout_ms   = int((collect_time + 5.0) * 1000)
 
-            # Flush stale samples
-            daq.poll(0.01, 100, 0, True)
-
-            # Collect for the integration window
-            data = daq.poll(collect_time, timeout_ms, 0, True)
+            with self.p._daq_lock:
+                daq = self.p.daq
+                # Flush stale samples
+                daq.poll(0.01, 100, 0, True)
+                # Collect for the integration window
+                data = daq.poll(collect_time, timeout_ms, 0, True)
 
             sqrt2 = np.sqrt(2)
             for i in range(4):

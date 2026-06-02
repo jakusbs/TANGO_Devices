@@ -305,6 +305,26 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 - The companion `ThreadZI` / `ThreadZI2` no longer carry a hardcoded `DEVICE` constant — they pull `DeviceId` from the parent and write into `parent._x[i]` / `parent._y[i]`.
 - Source files keep `from ThreadZI import ThreadZI` (resp. `ThreadZI2`); the `install_*_DAQ.sh` scripts rename `ThreadZI_DAQ.py` → `ThreadZI.py` and rewrite the import to a relative one inside the `ZI_DAQ` / `ZI2_DAQ` package. The launch entry point (`ZI_DAQ <instance>`) and Jive class names (`ZI`, `ZI2`) are unchanged.
 
+### ZI / ZI2 — thread safety and crash fixes
+`ziDAQServer` is a C extension that is **not thread-safe**. Three crash causes were identified and fixed:
+
+1. **Concurrent `daq.*` access**: TANGO's attribute polling thread calls `daq.getDouble()` (for `timeconstant`, `filterorder`, `settlingtime`) while `ThreadZI.run()` calls `daq.poll()`. Fix: all `daq.*` calls in both the main thread and the background thread now hold `self._daq_lock` (`threading.Lock`). The thread holds the lock for the full poll duration so `getDouble` calls serialise against it.
+
+2. **Missing null guard**: if `ziDAQServer()` fails at startup, `self.daq` was never set, causing `AttributeError` on the next attribute read. Fix: `self.daq = None` is set at the start of `init_device`; `_require_daq()` raises a clean `DevFailed` if it is `None`; `always_executed_hook` also surfaces this as FAULT state.
+
+3. **No recovery path**: opening the LabOne web interface can reset the data server's API session, staling `self.daq`. Fix: `Reconnect` command re-creates the `ziDAQServer`, re-subscribes demods, and restores cached settings — all under `_daq_lock`. Call it from Jive instead of restarting the process.
+
+### ZI / ZI2 — firmware version mismatch
+- ZI1 (dev4855, 192.168.1.62): LabOne **25.x** firmware.
+- ZI2 (dev30933, 192.168.1.144): LabOne **24.10.6** firmware — one major version behind.
+- Installed zhinst Python package: **25.4.1**. `ziDAQServer` does a strict version check on connect and throws if the API and firmware versions differ.
+- Fix: `AllowVersionMismatch` device property (bool, default `False`). Set `True` in Jive for ZI2 to pass `allow_version_mismatch=True` to the constructor. Long-term fix is updating ZI2 LabOne firmware to 25.x.
+- Install scripts pin `zhinst>=24,<26` (covers both firmware generations in one environment).
+- `poll()` call uses the old positional-argument form (`daq.poll(t, ms, 0, True)`) which works with `zhinst.ziPython` (the C extension). If ever migrating to `zhinst.core`, change to keyword arguments: `daq.poll(t, ms, flat=True)`.
+
+### ZI / ZI2 — what still needs attention
+- **Update ZI2 firmware**: upgrade from LabOne 24.10.6 to 25.x so both instruments share the same API version and `AllowVersionMismatch` can be set back to `False`.
+
 ---
 
 ## What Still Needs Attention

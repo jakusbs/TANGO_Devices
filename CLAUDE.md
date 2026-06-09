@@ -322,6 +322,9 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 - Install scripts pin `zhinst>=24,<26` (covers both firmware generations in one environment).
 - `poll()` call uses the old positional-argument form (`daq.poll(t, ms, 0, True)`) which works with `zhinst.ziPython` (the C extension). If ever migrating to `zhinst.core`, change to keyword arguments: `daq.poll(t, ms, flat=True)`.
 
+### ZI / ZI2 — idle-server zero outputs
+With short integration times and no Jive panel open, `Start()` occasionally returns 0 for all channels. Root cause: the ZI data server pauses sample delivery when the API connection is idle. Jive's regular attribute polling (`timeconstant`, `filterorder`, `settlingtime`) happened to keep the server warm. Fix: `ThreadZI`/`ThreadZI2` now call `daq.getDouble('/.../demods/0/rate')` inside the lock immediately before the flush poll, ensuring the server is streaming before the collection window starts. A `warn_stream` is emitted if any demod returns empty data, so the problem is visible in the device logs rather than silently producing 0.
+
 ### ZI / ZI2 — what still needs attention
 - **Update ZI2 firmware**: upgrade from LabOne 24.10.6 to 25.x so both instruments share the same API version and `AllowVersionMismatch` can be set back to `False`.
 

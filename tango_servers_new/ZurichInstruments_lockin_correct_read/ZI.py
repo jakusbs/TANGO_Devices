@@ -160,6 +160,9 @@ class ZI(Device):
         self._samplingrate = self.daq.getDouble(self._path('demods/0/rate'))
         self._frequency    = self.daq.getDouble(self._path('oscs/0/freq'))
         self._amplitude    = self.daq.getDouble(self._path('sigouts/0/amplitudes/0'))
+        self._timeconstant = self.daq.getDouble(self._path('demods/0/timeconstant'))
+        self._filterorder  = int(self.daq.getDouble(self._path('demods/0/order')))
+        self._settlingtime = SETTLE_99.get(self._filterorder, 16.0) * self._timeconstant
 
     def always_executed_hook(self):
         if self.daq is None and self.get_state() != DevState.FAULT:
@@ -304,23 +307,35 @@ class ZI(Device):
                doc="Demod 0 low-pass filter time constant (read from hardware)")
     def timeconstant(self):
         self._require_daq()
-        with self._daq_lock:
-            self._timeconstant = self.daq.getDouble(self._path('demods/0/timeconstant'))
+        if self._daq_lock.acquire(blocking=False):
+            try:
+                self._timeconstant = self.daq.getDouble(self._path('demods/0/timeconstant'))
+            finally:
+                self._daq_lock.release()
         return self._timeconstant
 
     @attribute(dtype=int, access=AttrWriteType.READ,
                doc="Demod 0 filter order 1-8 (read from hardware)")
     def filterorder(self):
         self._require_daq()
-        with self._daq_lock:
-            self._filterorder = int(self.daq.getDouble(self._path('demods/0/order')))
+        if self._daq_lock.acquire(blocking=False):
+            try:
+                self._filterorder = int(self.daq.getDouble(self._path('demods/0/order')))
+            finally:
+                self._daq_lock.release()
         return self._filterorder
 
     @attribute(dtype=float, access=AttrWriteType.READ, unit='s',
                doc="99% settling time = settle_factor(order) * timeconstant")
     def settlingtime(self):
-        settling, _, _ = self._settling_time()
-        self._settlingtime = settling
+        self._require_daq()
+        if self._daq_lock.acquire(blocking=False):
+            try:
+                tc = self.daq.getDouble(self._path('demods/0/timeconstant'))
+                order = int(self.daq.getDouble(self._path('demods/0/order')))
+                self._settlingtime = SETTLE_99.get(order, 16.0) * tc
+            finally:
+                self._daq_lock.release()
         return self._settlingtime
 
     # ---- commands -------------------------------------------------------

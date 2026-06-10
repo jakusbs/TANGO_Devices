@@ -63,6 +63,13 @@ class Socket(Device):
                 self._sock.close()
             except Exception:
                 pass
+            # Must be cleared before attempting the new connection: if
+            # connect() fails (e.g. Keithley TIME_WAIT block), a dangling
+            # closed-socket handle would make _require_connected() think we
+            # are still connected — subsequent recv/sendall then raise EBADF,
+            # which is not in _CONNECTION_ERRORS, so AutoReconnect would
+            # never engage again.
+            self._sock = None
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         s.settimeout(self.Readtimeout / 1000.0)
         s.connect((self.Hostname, self.Port))
@@ -110,6 +117,19 @@ class Socket(Device):
             self._on_socket_error(exc)
         raise exc
 
+    def _peer_closed(self):
+        """recv() returned b'' — the peer closed the connection with an
+        orderly FIN (the exact Keithley silent-drop scenario; no exception is
+        raised by the socket layer).  Route it through the same
+        disconnect/reconnect path as hard connection errors and raise, so
+        the caller knows this read failed and can retry."""
+        self._on_socket_error(
+            ConnectionResetError("peer closed the connection (recv returned no data)"))
+        tango.Except.throw_exception(
+            "Connection closed by peer",
+            "recv() returned no data — remote end closed the connection",
+            "Socket::_peer_closed")
+
     # ---- Commands -------------------------------------------------------
 
     @command(dtype_in='DevString', doc_in="String to send")
@@ -126,9 +146,12 @@ class Socket(Device):
         """Read available data from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(4096).decode('utf-8', errors='ignore')
+            data = self._sock.recv(4096)
         except _socket.error as e:
             self._handle_error(e)
+        if not data:
+            self._peer_closed()
+        return data.decode('utf-8', errors='ignore')
 
     @command()
     def Reconnect(self):
@@ -148,51 +171,68 @@ class Socket(Device):
         self._require_connected()
         try:
             self._sock.sendall((argin + '\r\n').encode())
-            return self._sock.recv(4096).decode('utf-8', errors='ignore')
+            data = self._sock.recv(4096)
         except _socket.error as e:
             self._handle_error(e)
+        if not data:
+            self._peer_closed()
+        return data.decode('utf-8', errors='ignore')
 
     @command(dtype_out='DevString', doc_out="Line read from socket (strips trailing CRLF)")
     def Readln(self):
         """Read characters until a newline character is received. Strips trailing \\r if present (CRLF protocols)."""
         self._require_connected()
+        dead = False
         try:
             buf = b''
             while True:
                 c = self._sock.recv(1)
-                if not c or c == b'\n':
+                if not c:
+                    # Empty after data already arrived: keep old behaviour
+                    # (return what was read).  Dead from the first byte:
+                    # the peer closed the connection.
+                    dead = not buf
+                    break
+                if c == b'\n':
                     break
                 buf += c
-            if buf.endswith(b'\r'):
-                buf = buf[:-1]
-            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
+        if dead:
+            self._peer_closed()
+        if buf.endswith(b'\r'):
+            buf = buf[:-1]
+        return buf.decode('utf-8', errors='ignore')
 
     @command(dtype_in='DevString', doc_in="Terminator string",
              dtype_out='DevString', doc_out="Data read up to and including the terminator")
     def ReadUntil(self, argin):
         """Read characters until the given terminator string is received."""
         self._require_connected()
+        dead = False
         try:
             buf = b''
             term = argin.encode()
             while True:
                 c = self._sock.recv(1)
                 if not c:
+                    dead = not buf
                     break
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
+        if dead:
+            self._peer_closed()
+        return buf.decode('utf-8', errors='ignore')
 
     @command(dtype_in=('str',), doc_in="[write_string, terminator]",
              dtype_out='DevString', doc_out="Response up to and including the terminator")
     def WriteReadUntil(self, argin):
         """Write argin[0] (CRLF appended), then read until argin[1] is received."""
         self._require_connected()
+        dead = False
         try:
             self._sock.sendall((argin[0] + '\r\n').encode())
             buf = b''
@@ -200,13 +240,16 @@ class Socket(Device):
             while True:
                 c = self._sock.recv(1)
                 if not c:
+                    dead = not buf
                     break
                 buf += c
                 if buf.endswith(term):
                     break
-            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
+        if dead:
+            self._peer_closed()
+        return buf.decode('utf-8', errors='ignore')
 
     @command(dtype_in='DevString', doc_in="String to send (newline appended)")
     def WriteLine(self, argin):
@@ -224,35 +267,47 @@ class Socket(Device):
         self._require_connected()
         try:
             self._sock.sendall((argin + '\r\n').encode())
-            return self._sock.recv(4096).decode('utf-8', errors='ignore')
+            data = self._sock.recv(4096)
         except _socket.error as e:
             self._handle_error(e)
+        if not data:
+            self._peer_closed()
+        return data.decode('utf-8', errors='ignore')
 
     @command(dtype_in='DevString', doc_in="String to send",
              dtype_out='DevString', doc_out="Response up to the null character")
     def WriteReadZero(self, argin):
         """Write a string then read characters until a null byte is received."""
         self._require_connected()
+        dead = False
         try:
             self._sock.sendall(argin.encode())
             buf = b''
             while True:
                 c = self._sock.recv(1)
-                if not c or c == b'\x00':
+                if not c:
+                    dead = not buf
+                    break
+                if c == b'\x00':
                     break
                 buf += c
-            return buf.decode('utf-8', errors='ignore')
         except _socket.error as e:
             self._handle_error(e)
+        if dead:
+            self._peer_closed()
+        return buf.decode('utf-8', errors='ignore')
 
     @command(dtype_out='DevString', doc_out="Single character read from socket")
     def ReadChar(self):
         """Read a single character from the socket."""
         self._require_connected()
         try:
-            return self._sock.recv(1).decode('utf-8', errors='ignore')
+            c = self._sock.recv(1)
         except _socket.error as e:
             self._handle_error(e)
+        if not c:
+            self._peer_closed()
+        return c.decode('utf-8', errors='ignore')
 
 
 def main(args=None, **kwargs):

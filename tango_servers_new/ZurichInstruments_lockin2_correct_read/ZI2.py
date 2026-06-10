@@ -347,8 +347,16 @@ class ZI2(Device):
         """Run one integration cycle in a background thread."""
         self._require_daq()
         if self.get_state() == DevState.ON:
+            # RUNNING is set here, not in the thread: a second Start arriving
+            # before the thread is scheduled must not pass the state==ON guard
+            # and spawn a second acquisition thread (split sample stream).
+            self.set_state(DevState.RUNNING)
             self.thread = ThreadZI2(self)
-            self.thread.start()
+            try:
+                self.thread.start()
+            except Exception:
+                self.set_state(DevState.ON)
+                raise
         else:
             self.warn_stream("Thread is already running.")
 

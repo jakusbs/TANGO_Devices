@@ -12,6 +12,9 @@ from tango.server import Device, command, attribute, device_property, run
 
 __all__ = ["Magnet", "main"]
 
+# Beckhoff analog output range — same DAC family ANM200 guards at ±10 V.
+DAC_LIMIT_V = 10.0
+
 
 class Magnet(Device):
     """
@@ -92,6 +95,7 @@ class Magnet(Device):
     @current_polar.write
     def current_polar(self, value):
         volts = value / self.AmperePerVolt_polar
+        self._check_dac_volts(volts, value, "current_polar")
         self.ads.WriteReal("{}={:.6f}".format(self.BeckhoffVariable_polar, volts))
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -104,7 +108,20 @@ class Magnet(Device):
     @current_longitudinal.write
     def current_longitudinal(self, value):
         volts = value / self.AmperePerVolt_longitudinal
+        self._check_dac_volts(volts, value, "current_longitudinal")
         self.ads.WriteReal("{}={:.6f}".format(self.BeckhoffVariable_longitudinal, volts))
+
+    @staticmethod
+    def _check_dac_volts(volts, amps, attr_name):
+        """Reject (not clamp) writes outside the DAC range — the user must
+        know their setpoint was not honored."""
+        if abs(volts) > DAC_LIMIT_V:
+            tango.Except.throw_exception(
+                "Current setpoint out of DAC range",
+                "{} = {:.4g} A requires {:.4g} V on the DAC "
+                "(limit ±{:.0f} V) — check the value and AmperePerVolt "
+                "calibration".format(attr_name, amps, volts, DAC_LIMIT_V),
+                "Magnet::" + attr_name)
 
     # ---- Attributes: field (R) ------------------------------------------
 

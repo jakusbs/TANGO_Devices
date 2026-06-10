@@ -85,6 +85,12 @@ class AdsBridge2(Device):
         """Initializes the attributes and properties of the AdsBridge2."""
         Device.init_device(self)
         # PROTECTED REGION ID(AdsBridge2.init_device) ENABLED START #
+        # lock/plc must exist before the connection attempt: a failed init
+        # would otherwise leave them unset, and every later command —
+        # including Reconnect, the designated recovery path — would die
+        # with AttributeError instead of a clean DevFailed.
+        self.lock = threading.Lock()
+        self.plc = None
         try:
             pyads.add_route(self.PlcAmsAddress, self.PlcIP)
             #self.plc = pyads.Connection(self.PlcAmsAddress, 851)
@@ -96,7 +102,6 @@ class AdsBridge2(Device):
                 str(e),
                 "AdsBridge2::init_device")
         self.set_state(PyTango.DevState.ON)
-        self.lock = threading.Lock()
         # PROTECTED REGION END #    //  AdsBridge2.init_device
 
     def always_executed_hook(self):
@@ -113,7 +118,11 @@ class AdsBridge2(Device):
         destructor and by the device Init command.
         """
         # PROTECTED REGION ID(AdsBridge2.delete_device) ENABLED START #
-        self.plc.close()
+        if getattr(self, 'plc', None) is not None:
+            try:
+                self.plc.close()
+            except Exception:
+                pass
         # PROTECTED REGION END #    //  AdsBridge2.delete_device
 
     # --------
@@ -127,7 +136,14 @@ class AdsBridge2(Device):
         """Close and reopen the ADS connection. Use after a PLC reboot or network fault."""
         try:
             with self.lock:
-                self.plc.close()
+                if self.plc is None:
+                    # init_device never managed to connect — build the
+                    # connection from scratch so Reconnect can recover
+                    # without an Init/restart.
+                    pyads.add_route(self.PlcAmsAddress, self.PlcIP)
+                    self.plc = pyads.Connection(self.PlcAmsAddress, self.Port)
+                else:
+                    self.plc.close()
                 self.plc.open()
             self.set_state(PyTango.DevState.ON)
             self.set_status("Reconnected")
@@ -319,12 +335,15 @@ class AdsBridge2(Device):
             with self.lock:
                 # pyads syntax for reading arrays: Type * Count
                 return self.plc.read_by_name(var_name, pyads.PLCTYPE_LREAL * count)
-                
+
         except Exception as e:
-            self.set_state(PyTango.DevState.FAULT)
-            self.set_status(f"ADS error: ReadRealArray failed for {argin}. {str(e)}")
-            # Return fallback list of -10.0 as per C++ implementation
-            return [-10.0] * (count if 'count' in locals() else 1)
+            # Throw like every other command — the old C++-style -10.0
+            # filler handed the caller (PyHysteresis) plausible-looking
+            # data with no error, and the FAULT it latched was never
+            # cleared by later successful calls.
+            PyTango.Except.throw_exception("Unable to read lreal array",
+                "ReadRealArray failed for {}: {}".format(argin, e),
+                "AdsBridge2::ReadRealArray")
         # PROTECTED REGION END #    //  AdsBridge2.ReadRealArray
 
     @command(
@@ -358,10 +377,10 @@ class AdsBridge2(Device):
                 return self.plc.read_by_name(var_name, pyads.PLCTYPE_DINT * count)
 
         except Exception as e:
-            self.set_state(PyTango.DevState.FAULT)
-            self.set_status(f"ADS error: ReadLongIntArray failed for {argin}. {str(e)}")
-            # Return fallback list of -10 as per C++ implementation
-            return [-10] * (count if 'count' in locals() else 1)
+            # Throw like every other command (see ReadRealArray).
+            PyTango.Except.throw_exception("Unable to read dint array",
+                "ReadLongIntArray failed for {}: {}".format(argin, e),
+                "AdsBridge2::ReadLongIntArray")
         # PROTECTED REGION END #    //  AdsBridge2.ReadLongIntArray
 
 

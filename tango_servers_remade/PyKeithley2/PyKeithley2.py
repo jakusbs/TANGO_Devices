@@ -38,6 +38,7 @@ class PyKeithley2(Device):
         self._amplitude = 0.0
         self._frequency = 0.0
         self._range = ""
+        self._wave_running = False
         self.keithley = tango.DeviceProxy(self.SocketProxy)
         # Recover from any state left by a previous session (instrument keeps
         # running waveforms across TCP disconnects). ABOR is safe in IDLE state.
@@ -115,6 +116,13 @@ class PyKeithley2(Device):
     @frequency.write
     def frequency(self, value):
         self._frequency = value
+        # The instrument only picks up SOUR:WAVE:FREQ on (re-)arming: while
+        # a wave is running, re-arm so the new frequency takes effect instead
+        # of being a silent no-op until the next amplitude write.  (Same
+        # auto-rearm approach as PyKeithleyPulse.)
+        if self._wave_running:
+            self.WAVEOFF()
+            self.SINEWAVE()
 
     @attribute(dtype=str, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=True,
@@ -164,11 +172,13 @@ class PyKeithley2(Device):
         time.sleep(0.1)
         self.keithley.WriteLine('SOUR:WAVE:ARM')
         self.keithley.WriteLine('SOUR:WAVE:INIT')
+        self._wave_running = True
 
     @command()
     def WAVEOFF(self):
         """Abort the current sine-wave output."""
         self.keithley.WriteLine('SOUR:WAVE:ABOR')
+        self._wave_running = False
 
 
 def main(args=None, **kwargs):

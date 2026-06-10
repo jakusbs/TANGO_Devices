@@ -140,26 +140,84 @@ class ANC300(Device):
         """Read available data from the socket."""
         return self._sock.recv(4096).decode('utf-8', errors='ignore')
 
+    def _drain(self):
+        """Discard stale buffered bytes (e.g. unread replies of earlier
+        commands) so the next read parses the right response instead of
+        whatever happened to be queued first."""
+        if self._sock is None:
+            return
+        old = self._sock.gettimeout()
+        try:
+            self._sock.settimeout(0.05)
+            while True:
+                if not self._sock.recv(4096):
+                    break
+        except (_socket.timeout, OSError):
+            pass
+        finally:
+            try:
+                self._sock.settimeout(old)
+            except Exception:
+                pass
+
+    def _read_response(self):
+        """Read until the OK/ERROR line the ANC300 console appends to every
+        response, or until Readtimeout.  Tolerant of old firmware: if the
+        terminator never shows up, whatever arrived is returned — we never
+        block much longer than Readtimeout."""
+        deadline = time.time() + self.Readtimeout / 1000.0
+        buf = ''
+        while time.time() < deadline:
+            try:
+                chunk = self._sock.recv(4096).decode('utf-8', errors='ignore')
+            except _socket.timeout:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            if 'OK' in buf or 'ERROR' in buf:
+                break
+        return buf
+
+    def _send_cmd(self, cmd):
+        """Send a set/step command and consume its echo + OK/ERROR reply so
+        replies cannot pile up in the receive buffer and desynchronize later
+        getf/getv/getm reads.  An explicit ERROR reply raises, so callers do
+        not cache a value the hardware rejected; a missing reply (old
+        firmware quirk) is tolerated silently."""
+        self._drain()
+        self._send(cmd)
+        reply = self._read_response()
+        if 'ERROR' in reply:
+            tango.Except.throw_exception(
+                'ANC300 command rejected',
+                "'{}' → {}".format(cmd, ' '.join(reply.split())),
+                'ANC300::_send_cmd')
+        return reply
+
     # =========================================================================
     # Protocol helpers
     # =========================================================================
 
     def _getf(self, addr):
+        self._drain()
         self._send('getf ' + addr)
         time.sleep(0.1)
-        nums = re.findall(r"[-+]?\d*\.\d+|\d+", self._read())
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", self._read_response())
         return float(nums[1]) if len(nums) > 1 else 0.0
 
     def _getv(self, addr):
+        self._drain()
         self._send('getv ' + addr)
         time.sleep(0.1)
-        nums = re.findall(r"[-+]?\d*\.\d+|\d+", self._read())
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", self._read_response())
         return float(nums[1]) if len(nums) > 1 else 0.0
 
     def _getm(self, addr):
+        self._drain()
         self._send('getm ' + addr)
         time.sleep(0.1)
-        return 'gnd' in self._read()
+        return 'gnd' in self._read_response()
 
     # =========================================================================
     # Attributes: frequency
@@ -173,7 +231,7 @@ class ANC300(Device):
 
     @fx.write
     def fx(self, value):
-        self._send('setf ' + self.addr_x + ' ' + str(int(value)))
+        self._send_cmd('setf ' + self.addr_x + ' ' + str(int(value)))
         self._fx = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -184,7 +242,7 @@ class ANC300(Device):
 
     @fy.write
     def fy(self, value):
-        self._send('setf ' + self.addr_y + ' ' + str(int(value)))
+        self._send_cmd('setf ' + self.addr_y + ' ' + str(int(value)))
         self._fy = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -195,7 +253,7 @@ class ANC300(Device):
 
     @fz.write
     def fz(self, value):
-        self._send('setf ' + self.addr_z + ' ' + str(int(value)))
+        self._send_cmd('setf ' + self.addr_z + ' ' + str(int(value)))
         self._fz = value
 
     # =========================================================================
@@ -210,7 +268,7 @@ class ANC300(Device):
 
     @Vx.write
     def Vx(self, value):
-        self._send('setv ' + self.addr_x + ' ' + str(value))
+        self._send_cmd('setv ' + self.addr_x + ' ' + str(value))
         self._Vx = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -221,7 +279,7 @@ class ANC300(Device):
 
     @Vy.write
     def Vy(self, value):
-        self._send('setv ' + self.addr_y + ' ' + str(value))
+        self._send_cmd('setv ' + self.addr_y + ' ' + str(value))
         self._Vy = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -232,7 +290,7 @@ class ANC300(Device):
 
     @Vz.write
     def Vz(self, value):
-        self._send('setv ' + self.addr_z + ' ' + str(value))
+        self._send_cmd('setv ' + self.addr_z + ' ' + str(value))
         self._Vz = value
 
     # =========================================================================
@@ -247,12 +305,12 @@ class ANC300(Device):
     @px.write
     def px(self, value):
         steps = int(value - self._px)
-        self._send('setm ' + self.addr_x + ' stp')
+        self._send_cmd('setm ' + self.addr_x + ' stp')
         time.sleep(0.1)
         if steps > 0:
-            self._send('stepu ' + self.addr_x + ' ' + str(steps))
+            self._send_cmd('stepu ' + self.addr_x + ' ' + str(steps))
         elif steps < 0:
-            self._send('stepd ' + self.addr_x + ' ' + str(abs(steps)))
+            self._send_cmd('stepd ' + self.addr_x + ' ' + str(abs(steps)))
         self._px = value
         self._Gx = False
 
@@ -264,12 +322,12 @@ class ANC300(Device):
     @py.write
     def py(self, value):
         steps = int(value - self._py)
-        self._send('setm ' + self.addr_y + ' stp')
+        self._send_cmd('setm ' + self.addr_y + ' stp')
         time.sleep(0.1)
         if steps > 0:
-            self._send('stepu ' + self.addr_y + ' ' + str(steps))
+            self._send_cmd('stepu ' + self.addr_y + ' ' + str(steps))
         elif steps < 0:
-            self._send('stepd ' + self.addr_y + ' ' + str(abs(steps)))
+            self._send_cmd('stepd ' + self.addr_y + ' ' + str(abs(steps)))
         self._py = value
         self._Gy = False
 
@@ -281,12 +339,12 @@ class ANC300(Device):
     @pz.write
     def pz(self, value):
         steps = int(value - self._pz)
-        self._send('setm ' + self.addr_z + ' stp')
+        self._send_cmd('setm ' + self.addr_z + ' stp')
         time.sleep(0.1)
         if steps > 0:
-            self._send('stepu ' + self.addr_z + ' ' + str(steps))
+            self._send_cmd('stepu ' + self.addr_z + ' ' + str(steps))
         elif steps < 0:
-            self._send('stepd ' + self.addr_z + ' ' + str(abs(steps)))
+            self._send_cmd('stepd ' + self.addr_z + ' ' + str(abs(steps)))
         self._pz = value
         self._Gz = False
 
@@ -301,7 +359,7 @@ class ANC300(Device):
 
     @Gx.write
     def Gx(self, value):
-        self._send('setm ' + self.addr_x + (' gnd' if value else ' stp'))
+        self._send_cmd('setm ' + self.addr_x + (' gnd' if value else ' stp'))
         self._Gx = value
 
     @attribute(dtype=bool, access=AttrWriteType.READ_WRITE,
@@ -311,7 +369,7 @@ class ANC300(Device):
 
     @Gy.write
     def Gy(self, value):
-        self._send('setm ' + self.addr_y + (' gnd' if value else ' stp'))
+        self._send_cmd('setm ' + self.addr_y + (' gnd' if value else ' stp'))
         self._Gy = value
 
     @attribute(dtype=bool, access=AttrWriteType.READ_WRITE,
@@ -321,7 +379,7 @@ class ANC300(Device):
 
     @Gz.write
     def Gz(self, value):
-        self._send('setm ' + self.addr_z + (' gnd' if value else ' stp'))
+        self._send_cmd('setm ' + self.addr_z + (' gnd' if value else ' stp'))
         self._Gz = value
 
     # =========================================================================
@@ -338,7 +396,7 @@ class ANC300(Device):
             (self.addr_z, '_Gz', 'z'),
         ]:
             try:
-                self._send('setm ' + addr + ' gnd')
+                self._send_cmd('setm ' + addr + ' gnd')
                 setattr(self, flag, True)
             except Exception as e:
                 errors.append('axis {}: {}'.format(name, e))

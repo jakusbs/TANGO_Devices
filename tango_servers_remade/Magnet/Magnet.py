@@ -168,6 +168,7 @@ class Magnet(Device):
     # ---- Attributes: correction factors (RW) ----------------------------
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
+               memorized=True, hw_memorized=True,
                doc="Multiplicative correction factor for polar Hall probe reading")
     def corr_polar(self):
         return self._corr_polar
@@ -177,6 +178,7 @@ class Magnet(Device):
         self._corr_polar = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
+               memorized=True, hw_memorized=True,
                doc="Multiplicative correction factor for longitudinal Hall probe reading")
     def corr_longitudinal(self):
         return self._corr_longitudinal

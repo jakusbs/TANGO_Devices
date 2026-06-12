@@ -272,6 +272,7 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 - `Abort()` guards with `hasattr` so it can be called safely before `Start()` without raising.
 - `HysteresisThread` has a hard 600 s per half-loop timeout on the `HystRunning` PLC flag so a stuck flag cannot hang the thread forever — it auto-aborts on the PLC side and returns.
 - `BeckhoffHystChannelValue` device property is **mandatory** in practice; comparing to `1` selects DAC1 (longitudinal), anything else falls to DAC2 (polar).
+- **Source selection**: in the PLC, `HystResult1–6` historically record **AnalogIn1–6, hard-wired** — signals moved to the ELM terminals are invisible to DC hysteresis. The server now has memorized `source1`–`source6` attributes (1–6 = AnalogIn1–6, 11–16 = ELM1–6) writing `MAIN.HystSource1–6`; selections are re-pushed at every `Start()`. **Requires the matching PLC change** (see `tango_servers_new/PyHysteresis/PLC_source_selection.md` for the exact TwinCAT structured text); on older PLC programs the attribute write raises a clear error and the PLC keeps recording AnalogIn1–6.
 
 ### Socket (remade)
 - `Write` / `WriteRead` / `WriteReadUntil` / `WriteAndRead` all append `\r\n` (match original C++ Socket server).

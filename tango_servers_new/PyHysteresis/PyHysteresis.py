@@ -109,7 +109,13 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.attr_NumberOfPoints_read = 100 #self.ads0.ReadInt(self.BeckhoffHystArrayLength)
         self.attr_MagneticField_read = 1
         self.attr_Cycles_read = 1
-        
+        # Hysteresis source selectors (cache; pushed to the PLC on write and
+        # at every Start).  1..6 = AnalogIn1..6 (hard-wired old behaviour),
+        # 11..16 = ELM1..6.  Requires the HystSource1..6 variables in the
+        # PLC program — on older programs the writes fail and the PLC keeps
+        # recording its hard-wired AnalogIn1..6 sources.
+        self.attr_sources = {n: n for n in range(1, 7)}
+
         #----- PROTECTED REGION END -----#	//	PyHysteresis.init_device
 
     def always_executed_hook(self):
@@ -286,8 +292,24 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.debug_stream("In read_field()")
         #----- PROTECTED REGION ID(PyHysteresis.field_read) ENABLED START -----#
         attr.set_value(self.attr_field_read)
-        
+
         #----- PROTECTED REGION END -----#	//	PyHysteresis.field_read
+
+    # ---- Source selectors (which PLC signal goes into each result array) ----
+
+    def read_source1(self, attr):  self._read_source(1, attr)
+    def read_source2(self, attr):  self._read_source(2, attr)
+    def read_source3(self, attr):  self._read_source(3, attr)
+    def read_source4(self, attr):  self._read_source(4, attr)
+    def read_source5(self, attr):  self._read_source(5, attr)
+    def read_source6(self, attr):  self._read_source(6, attr)
+
+    def write_source1(self, attr): self._write_source(1, attr)
+    def write_source2(self, attr): self._write_source(2, attr)
+    def write_source3(self, attr): self._write_source(3, attr)
+    def write_source4(self, attr): self._write_source(4, attr)
+    def write_source5(self, attr): self._write_source(5, attr)
+    def write_source6(self, attr): self._write_source(6, attr)
 
 
     def read_attr_hardware(self, data):
@@ -324,6 +346,8 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.ads.WriteShort(self.BeckhoffHystArrayLength+"={:d}".format(self.attr_NumberOfPoints_read))
         # DAC channel: 1=long, 2=polar
         self.ads.WriteShort(self.BeckhoffHystOutputChannel+"={:d}".format(self.BeckhoffHystChannelValue))
+        # source selectors (no-op on PLC programs without HystSource1..6)
+        self._push_sources()
                
         # call hysteresis thread
         if self.get_state() == PyTango.DevState.ON:
@@ -346,7 +370,58 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         #----- PROTECTED REGION END -----#	//	PyHysteresis.Abort
 
     #----- PROTECTED REGION ID(PyHysteresis.programmer_methods) ENABLED START -----#
-    
+
+    # ---- Hysteresis source selection helpers --------------------------------
+    # The PLC records HystSrc[HystSourceN] into HystResultN each cycle.
+    # Selector values: 1..6 = AnalogIn1..6, 11..16 = ELM1..6.
+
+    _VALID_SOURCES = tuple(range(1, 7)) + tuple(range(11, 17))
+
+    def _source_var(self, n):
+        return "{}{:d}".format(self.BeckhoffHystSourceBase, n)
+
+    def _read_source(self, n, attr):
+        try:
+            self.attr_sources[n] = int(self.ads.ReadShort(self._source_var(n)))
+        except Exception:
+            # PLC program without HystSource symbols — report the cache
+            pass
+        attr.set_value(self.attr_sources[n])
+
+    def _write_source(self, n, attr):
+        data = int(attr.get_write_value())
+        if data not in self._VALID_SOURCES:
+            PyTango.Except.throw_exception(
+                "Invalid source selector",
+                "source{:d} = {:d} — valid values: 1..6 (AnalogIn1..6) "
+                "or 11..16 (ELM1..6)".format(n, data),
+                "PyHysteresis::write_source")
+        try:
+            self.ads.WriteShort(self._source_var(n) + "={:d}".format(data))
+        except Exception as e:
+            PyTango.Except.throw_exception(
+                "Cannot set hysteresis source",
+                "Writing {} failed — the PLC program may not have the "
+                "HystSource variables yet (TwinCAT update required): "
+                "{}".format(self._source_var(n), e),
+                "PyHysteresis::write_source")
+        self.attr_sources[n] = data
+
+    def _push_sources(self):
+        """Re-write all cached source selectors to the PLC (called in Start
+        so the selection survives a PLC reboot).  Tolerated on old PLC
+        programs without the HystSource symbols — the PLC then keeps its
+        hard-wired AnalogIn1..6 recording."""
+        for n in sorted(self.attr_sources):
+            try:
+                self.ads.WriteShort(self._source_var(n)
+                                    + "={:d}".format(self.attr_sources[n]))
+            except Exception:
+                self.warn_stream(
+                    "{} not available on the PLC — recording uses the "
+                    "program's hard-wired sources".format(self._source_var(n)))
+                break
+
     #----- PROTECTED REGION END -----#	//	PyHysteresis.programmer_methods
 
 
@@ -434,9 +509,15 @@ class PyHysteresisClass(PyTango.DeviceClass):
             ["MAIN.HystChannel"] ,
             ],
         'BeckhoffHystChannelValue':
-            [PyTango.DevUShort, 
+            [PyTango.DevUShort,
             "Output channel number for Beckhoff DAC (e.g. 1=long or 2=polar)",
              [],
+            ],
+        'BeckhoffHystSourceBase':
+            [PyTango.DevString,
+            "Base name of the Beckhoff source-selector variables; the channel "
+            "number 1..6 is appended (MAIN.HystSource1 .. MAIN.HystSource6)",
+            ["MAIN.HystSource"] ,
             ],
         'AmperePerVolt':
             [PyTango.DevDouble, 
@@ -552,6 +633,54 @@ class PyHysteresisClass(PyTango.DeviceClass):
             PyTango.READ, 1000],
             {
                 'unit': "mT",
+            }],
+        'source1':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result1: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source2':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result2: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source3':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result3: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source4':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result4: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source5':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result5: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source6':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result6: 1..6=AnalogIn1..6, 11..16=ELM1..6",
             }],
         }
 

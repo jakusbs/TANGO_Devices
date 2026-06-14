@@ -327,6 +327,28 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.debug_stream("In Start()")
         #----- PROTECTED REGION ID(PyHysteresis.Start) ENABLED START -----#
         # set state to running done in thread # self.set_state(PyTango.DevState.RUNNING)
+
+        # Interlock: a single PLC hysteresis engine is shared by every
+        # PyHysteresis device (e.g. the polar and longitudinal instances).
+        # Writing HystStart while a measurement is already running resets the
+        # running loop's result arrays on the PLC and corrupts both readouts.
+        # Refuse to start if the engine is busy — only one loop at a time.
+        # A read error (ADS down) is non-fatal: warn and proceed as before.
+        busy = False
+        try:
+            busy = bool(self.ads.ReadBool(self.BeckhoffHystRunning))
+        except Exception as e:
+            self.warn_stream("Could not read HystRunning before Start: {}".format(e))
+        if busy:
+            PyTango.Except.throw_exception(
+                "Hysteresis engine busy",
+                "The PLC is already running a hysteresis measurement "
+                "(MAIN.HystRunning is set) — another PyHysteresis device "
+                "(polar/longitudinal) is likely using the shared engine. "
+                "Only one loop can run at a time; wait for it to finish or "
+                "Abort it first.",
+                "PyHysteresis::Start")
+
         # clear old results
         self.attr_result1_read = [0.0]
         self.attr_result2_read = [0.0]

@@ -12,6 +12,9 @@ from tango.server import Device, command, attribute, device_property, run
 
 __all__ = ["Magnet", "main"]
 
+# Beckhoff analog output range — same DAC family ANM200 guards at ±10 V.
+DAC_LIMIT_V = 10.0
+
 
 class Magnet(Device):
     """
@@ -92,6 +95,8 @@ class Magnet(Device):
     @current_polar.write
     def current_polar(self, value):
         volts = value / self.AmperePerVolt_polar
+        self._check_output_range(volts, value, self.AmperePerVolt_polar,
+                                 "current_polar")
         self.ads.WriteReal("{}={:.6f}".format(self.BeckhoffVariable_polar, volts))
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
@@ -104,7 +109,28 @@ class Magnet(Device):
     @current_longitudinal.write
     def current_longitudinal(self, value):
         volts = value / self.AmperePerVolt_longitudinal
+        self._check_output_range(volts, value, self.AmperePerVolt_longitudinal,
+                                 "current_longitudinal")
         self.ads.WriteReal("{}={:.6f}".format(self.BeckhoffVariable_longitudinal, volts))
+
+    @staticmethod
+    def _check_output_range(volts, amps, ampere_per_volt, attr_name):
+        """The attribute sets a CURRENT in A; the PLC variable carries the
+        converted programming voltage for the ±10 V DAC output that drives
+        the supply.  Currents beyond 10 V x AmperePerVolt are physically
+        unreachable — reject (not clamp) them so the user knows the setpoint
+        was not honored.  The limit is reported in Ampere."""
+        if abs(volts) > DAC_LIMIT_V:
+            limit_a = DAC_LIMIT_V * abs(ampere_per_volt)
+            tango.Except.throw_exception(
+                "Current setpoint not reachable",
+                "{} = {:.4g} A is outside the reachable range of "
+                "±{:.4g} A for this coil "
+                "(±{:.0f} V DAC output × AmperePerVolt = "
+                "{:.4g} A/V) — check the value and the AmperePerVolt "
+                "calibration property".format(
+                    attr_name, amps, limit_a, DAC_LIMIT_V, ampere_per_volt),
+                "Magnet::" + attr_name)
 
     # ---- Attributes: field (R) ------------------------------------------
 
@@ -142,6 +168,7 @@ class Magnet(Device):
     # ---- Attributes: correction factors (RW) ----------------------------
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
+               memorized=True, hw_memorized=True,
                doc="Multiplicative correction factor for polar Hall probe reading")
     def corr_polar(self):
         return self._corr_polar
@@ -151,6 +178,7 @@ class Magnet(Device):
         self._corr_polar = value
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
+               memorized=True, hw_memorized=True,
                doc="Multiplicative correction factor for longitudinal Hall probe reading")
     def corr_longitudinal(self):
         return self._corr_longitudinal

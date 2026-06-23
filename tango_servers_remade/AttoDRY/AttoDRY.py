@@ -61,9 +61,15 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         self.on = False
         self._cache_lock = threading.Lock()
 
-        # Setpoint cache — read by AttoDRYCheck to detect convergence
+        # Setpoint cache — read by AttoDRYCheck to detect convergence.
+        # The *_written flags record which setpoints have actually been
+        # written since server start: AttoDRYCheck only tests those, so a
+        # fresh server that gets a field write does not wait forever for the
+        # sample to reach the default setTemp of 0.0 K (stuck in MOVING).
         self.setField = 0.0
         self.setTemp  = 0.0
+        self.field_setpoint_written = False
+        self.temp_setpoint_written  = False
 
         # ── Magnetic field ────────────────────────────────────────────────
         self.attr_MagneticField_read        = 0.0
@@ -126,6 +132,7 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     def write_MagneticField(self, attr):
         data = attr.get_write_value()
         self.setField = data
+        self.field_setpoint_written = True
         if hasattr(self, 'thread') and self.thread.is_alive():
             self.thread.stop()
             self.thread.join(timeout=1.0)
@@ -146,6 +153,7 @@ class AttoDRY(PyTango.LatestDeviceImpl):
     def write_Temperature(self, attr):
         data = attr.get_write_value()
         self.setTemp = data
+        self.temp_setpoint_written = True
         if hasattr(self, 'thread') and self.thread.is_alive():
             self.thread.stop()
             self.thread.join(timeout=1.0)
@@ -209,18 +217,36 @@ class AttoDRY(PyTango.LatestDeviceImpl):
         attr.set_value(self.attr_toggleMagneticFieldControl_read)
 
     def write_toggleMagneticFieldControl(self, attr):
+        # W003 TOGGLES the hardware state — only send when the requested
+        # value differs from the current readback, otherwise writing the
+        # current value would flip the control unintentionally.
+        if bool(attr.get_write_value()) == self.attr_toggleMagneticFieldControl_read:
+            self.info_stream('toggleMagneticFieldControl already {} — no toggle sent'
+                             .format(self.attr_toggleMagneticFieldControl_read))
+            return
         self.s.sendto('W003'.encode('utf-8'), self.server)
 
     def read_toggleFulltemperatureControl(self, attr):
         attr.set_value(self.attr_toggleFulltemperatureControl_read)
 
     def write_toggleFulltemperatureControl(self, attr):
+        if bool(attr.get_write_value()) == self.attr_toggleFulltemperatureControl_read:
+            self.info_stream('toggleFulltemperatureControl already {} — no toggle sent'
+                             .format(self.attr_toggleFulltemperatureControl_read))
+            return
         self.s.sendto('W004'.encode('utf-8'), self.server)
 
     def read_togglePersistentMode(self, attr):
         attr.set_value(self.attr_togglePersistentMode_read)
 
     def write_togglePersistentMode(self, attr):
+        # Especially critical here: an accidental no-change write toggling
+        # persistent mode traps/releases the field in the superconducting
+        # magnet.
+        if bool(attr.get_write_value()) == self.attr_togglePersistentMode_read:
+            self.info_stream('togglePersistentMode already {} — no toggle sent'
+                             .format(self.attr_togglePersistentMode_read))
+            return
         self.s.sendto('W005'.encode('utf-8'), self.server)
 
     # =========================================================================
@@ -308,8 +334,20 @@ class AttoDRY(PyTango.LatestDeviceImpl):
             self.on = False
             self.set_state(PyTango.DevState.OFF)
 
+        # The daemon listener was stopped above to release the port — it must
+        # be restarted, otherwise a manual Connect() from Jive permanently
+        # freezes all attribute readbacks.  (Restarted even after a failed
+        # handshake, matching the __init__ Connect()+Start() flow: the daemon
+        # tolerates timeouts and recovers when the Windows PC comes back.)
+        self.Start()
+
     def Disconnect(self):
         """Send OFF and close the UDP socket."""
+        # Stop the listener deliberately before closing its socket, so the
+        # daemon does not die on an OSError and report a false FAULT.
+        if hasattr(self, 'listener') and self.listener.is_alive():
+            self.listener.stop()
+            self.listener.join(timeout=2.0)
         try:
             self.s.sendto('OFF'.encode('utf-8'), self.server)
         except Exception:

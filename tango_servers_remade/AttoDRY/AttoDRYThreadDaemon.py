@@ -3,7 +3,8 @@
 # Sends "Read" every 0.2 s, parses the CSV reply packet, and updates all
 # attribute caches on the parent device.
 #
-# Packet format (26 comma-separated fields after "Read:"):
+# Packet format (25 comma-separated fields after "Read:", matching the
+# AttoSocket2.py bridge and the parser below):
 #   idx  field                      idx  field
 #    0   isControllingField          13  getSampleHeaterPower
 #    1   isControllingTemperature    14  getMagneticFieldSetPoint
@@ -16,8 +17,8 @@
 #    8   getReservoirTemperature     21  isZeroingField
 #    9   getCryostatInPressure       22  isPumping
 #   10   getDumpPressure             23  isSystemRunning
-#   11   getReservoirHeaterPower     24  isExchangeHeaterOn
-#   12   getVtiHeaterPower           25  isSampleHeaterOn
+#   11   getReservoirHeaterPower     24  isSampleHeaterOn
+#   12   getVtiHeaterPower
 
 import socket
 import time
@@ -42,12 +43,27 @@ class AttoDRYThread(threading.Thread):
         self._running = False
         self.p.set_state(PyTango.DevState.ON)
 
+    def _on_unexpected_exit(self, why):
+        """Socket error while still supposed to be running — make the thread's
+        death visible instead of silently freezing every attribute readback
+        at its last value."""
+        if not self._running:
+            return   # stopped deliberately (Connect/Disconnect) — not an error
+        try:
+            self.p.error_stream("AttoDRY listener thread exiting: " + why)
+            self.p.set_state(PyTango.DevState.FAULT)
+            self.p.set_status("Readback listener died (" + why +
+                              ") — call Connect to restart it")
+        except Exception:
+            pass
+
     def run(self):
         while self._running:
             # Send Read request
             try:
                 self.p.s.sendto("Read".encode("utf-8"), self.p.server)
-            except Exception:
+            except Exception as e:
+                self._on_unexpected_exit("send failed: " + str(e))
                 break
 
             # Receive reply
@@ -56,7 +72,8 @@ class AttoDRYThread(threading.Thread):
             except socket.timeout:
                 time.sleep(self.interval)
                 continue
-            except OSError:
+            except OSError as e:
+                self._on_unexpected_exit("receive failed: " + str(e))
                 break
 
             try:

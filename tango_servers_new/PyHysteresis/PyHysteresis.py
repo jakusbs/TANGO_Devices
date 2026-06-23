@@ -44,6 +44,7 @@ __docformat__ = 'restructuredtext'
 
 import PyTango
 import sys
+import numpy as np
 # Add additional import
 #----- PROTECTED REGION ID(PyHysteresis.additionnal_import) ENABLED START -----#
 from HysteresisThread import*
@@ -109,7 +110,20 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.attr_NumberOfPoints_read = 100 #self.ads0.ReadInt(self.BeckhoffHystArrayLength)
         self.attr_MagneticField_read = 1
         self.attr_Cycles_read = 1
-        
+        # Hysteresis source selectors (cache; pushed to the PLC on write and
+        # at every Start).  1..6 = AnalogIn1..6 (hard-wired old behaviour),
+        # 11..16 = ELM1..6.  Requires the HystSource1..6 variables in the
+        # PLC program — on older programs the writes fail and the PLC keeps
+        # recording its hard-wired AnalogIn1..6 sources.
+        self.attr_sources = {n: n for n in range(1, 7)}
+
+        # Per-cycle data retention (filled by HysteresisThread): _cyc[ch] is a
+        # list of (pos_array, neg_array), one entry per measured cycle, so an
+        # individual scan can be inspected (GetCycle) and excluded from the
+        # average (SetExcludedCycles + RecomputeAverage) without re-measuring.
+        self._cyc = {n: [] for n in range(1, 7)}
+        self._excluded_cycles = []
+
         #----- PROTECTED REGION END -----#	//	PyHysteresis.init_device
 
     def always_executed_hook(self):
@@ -286,8 +300,24 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.debug_stream("In read_field()")
         #----- PROTECTED REGION ID(PyHysteresis.field_read) ENABLED START -----#
         attr.set_value(self.attr_field_read)
-        
+
         #----- PROTECTED REGION END -----#	//	PyHysteresis.field_read
+
+    # ---- Source selectors (which PLC signal goes into each result array) ----
+
+    def read_source1(self, attr):  self._read_source(1, attr)
+    def read_source2(self, attr):  self._read_source(2, attr)
+    def read_source3(self, attr):  self._read_source(3, attr)
+    def read_source4(self, attr):  self._read_source(4, attr)
+    def read_source5(self, attr):  self._read_source(5, attr)
+    def read_source6(self, attr):  self._read_source(6, attr)
+
+    def write_source1(self, attr): self._write_source(1, attr)
+    def write_source2(self, attr): self._write_source(2, attr)
+    def write_source3(self, attr): self._write_source(3, attr)
+    def write_source4(self, attr): self._write_source(4, attr)
+    def write_source5(self, attr): self._write_source(5, attr)
+    def write_source6(self, attr): self._write_source(6, attr)
 
 
     def read_attr_hardware(self, data):
@@ -305,6 +335,28 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.debug_stream("In Start()")
         #----- PROTECTED REGION ID(PyHysteresis.Start) ENABLED START -----#
         # set state to running done in thread # self.set_state(PyTango.DevState.RUNNING)
+
+        # Interlock: a single PLC hysteresis engine is shared by every
+        # PyHysteresis device (e.g. the polar and longitudinal instances).
+        # Writing HystStart while a measurement is already running resets the
+        # running loop's result arrays on the PLC and corrupts both readouts.
+        # Refuse to start if the engine is busy — only one loop at a time.
+        # A read error (ADS down) is non-fatal: warn and proceed as before.
+        busy = False
+        try:
+            busy = bool(self.ads.ReadBool(self.BeckhoffHystRunning))
+        except Exception as e:
+            self.warn_stream("Could not read HystRunning before Start: {}".format(e))
+        if busy:
+            PyTango.Except.throw_exception(
+                "Hysteresis engine busy",
+                "The PLC is already running a hysteresis measurement "
+                "(MAIN.HystRunning is set) — another PyHysteresis device "
+                "(polar/longitudinal) is likely using the shared engine. "
+                "Only one loop can run at a time; wait for it to finish or "
+                "Abort it first.",
+                "PyHysteresis::Start")
+
         # clear old results
         self.attr_result1_read = [0.0]
         self.attr_result2_read = [0.0]
@@ -324,6 +376,8 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         self.ads.WriteShort(self.BeckhoffHystArrayLength+"={:d}".format(self.attr_NumberOfPoints_read))
         # DAC channel: 1=long, 2=polar
         self.ads.WriteShort(self.BeckhoffHystOutputChannel+"={:d}".format(self.BeckhoffHystChannelValue))
+        # source selectors (no-op on PLC programs without HystSource1..6)
+        self._push_sources()
                
         # call hysteresis thread
         if self.get_state() == PyTango.DevState.ON:
@@ -346,7 +400,167 @@ class PyHysteresis (PyTango.LatestDeviceImpl):
         #----- PROTECTED REGION END -----#	//	PyHysteresis.Abort
 
     #----- PROTECTED REGION ID(PyHysteresis.programmer_methods) ENABLED START -----#
-    
+
+    # ---- Per-cycle averaging (shared by the live loop and RecomputeAverage) --
+    # Single source of truth for turning the retained per-cycle half-loops into
+    # result1..6 / field / Hc / Hshift / Mr / Ms.  HysteresisThread calls this
+    # each cycle with all cycles so far; RecomputeAverage calls it with the
+    # surviving cycles after exclusions — so both paths use identical math.
+
+    def _average_and_derive(self, included):
+        """Average the retained cycles in *included* (1-based numbers) and
+        update all result/field/scalar attributes.  No-op if nothing to do."""
+        if not self._cyc.get(1):
+            return
+        ncyc = len(self._cyc[1])
+        included = sorted(i for i in set(included) if 1 <= i <= ncyc)
+        n = len(included)
+        if n == 0:
+            return
+        avg_pos, avg_neg = {}, {}
+        for ch in range(1, 7):
+            avg_pos[ch] = sum(self._cyc[ch][i - 1][0] for i in included) / n
+            avg_neg[ch] = sum(self._cyc[ch][i - 1][1] for i in included) / n
+            setattr(self, 'attr_result{:d}_read'.format(ch),
+                    np.concatenate([avg_pos[ch], avg_neg[ch]]))
+        al = len(avg_pos[1])
+
+        # Field axis from the Hall-probe channel (result5), scaled to mT.
+        scale = 1000.0 / self.HallSensitivity * self.attr_fieldCorrectionFactor_read
+        field_up = avg_pos[5] * scale
+        field_dn = avg_neg[5] * scale
+        self.attr_field_read = np.concatenate([field_up, field_dn])
+
+        # Hc / Hshift / Mr / Ms from the MOKE channel (result1) vs field —
+        # same algorithm as the original inline derivation.
+        result_up = self.attr_result1_read[:al]
+        result_dn = self.attr_result1_read[al:]
+        meanresult = np.mean(np.concatenate([result_up, result_dn]))
+        Hc_up = field_up[self._find_switch(result_up, meanresult, al)]
+        Hc_dn = field_dn[self._find_switch(result_dn, meanresult, al)]
+        self.attr_Hc_read = (Hc_up - Hc_dn) / 2.0
+        self.attr_Hshift_read = (Hc_up + Hc_dn) / 2.0
+        self.attr_Mr_read = (result_up[al // 2] - result_dn[al // 2]) / 2.0
+        self.attr_Ms_read = (result_up[0] + result_dn[-1]
+                             - result_up[-1] - result_dn[0]) / 2.0
+
+    @staticmethod
+    def _find_switch(branch, meanresult, al):
+        """Index where a loop branch crosses its mean, searched outward from
+        the loop centre (verbatim port of the original Hc-finding loop)."""
+        index = al // 2
+        offset = 1
+        while index + offset < al:
+            if (branch[index + offset] - meanresult) * (branch[index] - meanresult) < 0:
+                return index + offset
+            if (branch[index - offset] - meanresult) * (branch[index] - meanresult) < 0:
+                return index - offset
+            offset += 1
+        return index
+
+    # ---- Per-cycle inspection / exclusion commands --------------------------
+
+    def GetNumberOfCycles(self):
+        """Number of individual cycles retained from the last measurement."""
+        return len(self._cyc.get(1, []))
+
+    def GetCycle(self, n):
+        """Return one retained cycle (1-based) as a flat array of 7 blocks,
+        each 2*NumberOfPoints long: [field, result1, .., result6], pos half
+        then neg half.  field is the result5 Hall signal scaled to mT."""
+        ncyc = len(self._cyc.get(1, []))
+        if n < 1 or n > ncyc:
+            PyTango.Except.throw_exception(
+                "Invalid cycle",
+                "Cycle {:d} not available (have {:d}).".format(n, ncyc),
+                "PyHysteresis::GetCycle")
+        scale = 1000.0 / self.HallSensitivity * self.attr_fieldCorrectionFactor_read
+        blocks = [np.concatenate([self._cyc[5][n - 1][0] * scale,
+                                  self._cyc[5][n - 1][1] * scale])]
+        for ch in range(1, 7):
+            blocks.append(np.concatenate([self._cyc[ch][n - 1][0],
+                                          self._cyc[ch][n - 1][1]]))
+        return np.concatenate(blocks)
+
+    def SetExcludedCycles(self, argin):
+        """Set the 1-based cycle numbers to drop from the average; applied by
+        RecomputeAverage().  Pass an empty array to clear."""
+        self._excluded_cycles = sorted(set(int(x) for x in (argin or [])))
+
+    def RecomputeAverage(self):
+        """Re-derive result1..6 / field / Hc / Hshift / Mr / Ms from the
+        retained cycles, excluding those set via SetExcludedCycles — kicks a
+        bad scan out of the average without re-measuring."""
+        ncyc = len(self._cyc.get(1, []))
+        if ncyc == 0:
+            PyTango.Except.throw_exception(
+                "No cycle data",
+                "No per-cycle data retained — run a measurement first.",
+                "PyHysteresis::RecomputeAverage")
+        excluded = set(self._excluded_cycles)
+        included = [i for i in range(1, ncyc + 1) if i not in excluded]
+        if not included:
+            PyTango.Except.throw_exception(
+                "All cycles excluded",
+                "Every retained cycle is excluded — nothing to average.",
+                "PyHysteresis::RecomputeAverage")
+        self._average_and_derive(included)
+        self.attr_CycleReadback_read = len(included)
+        self.info_stream("Recomputed average over {:d}/{:d} cycles "
+                         "(excluded {})".format(len(included), ncyc,
+                                                sorted(excluded) or "none"))
+
+    # ---- Hysteresis source selection helpers --------------------------------
+    # The PLC records HystSrc[HystSourceN] into HystResultN each cycle.
+    # Selector values: 1..6 = AnalogIn1..6, 11..16 = ELM1..6.
+
+    _VALID_SOURCES = tuple(range(1, 7)) + tuple(range(11, 17))
+
+    def _source_var(self, n):
+        return "{}{:d}".format(self.BeckhoffHystSourceBase, n)
+
+    def _read_source(self, n, attr):
+        try:
+            self.attr_sources[n] = int(self.ads.ReadShort(self._source_var(n)))
+        except Exception:
+            # PLC program without HystSource symbols — report the cache
+            pass
+        attr.set_value(self.attr_sources[n])
+
+    def _write_source(self, n, attr):
+        data = int(attr.get_write_value())
+        if data not in self._VALID_SOURCES:
+            PyTango.Except.throw_exception(
+                "Invalid source selector",
+                "source{:d} = {:d} — valid values: 1..6 (AnalogIn1..6) "
+                "or 11..16 (ELM1..6)".format(n, data),
+                "PyHysteresis::write_source")
+        try:
+            self.ads.WriteShort(self._source_var(n) + "={:d}".format(data))
+        except Exception as e:
+            PyTango.Except.throw_exception(
+                "Cannot set hysteresis source",
+                "Writing {} failed — the PLC program may not have the "
+                "HystSource variables yet (TwinCAT update required): "
+                "{}".format(self._source_var(n), e),
+                "PyHysteresis::write_source")
+        self.attr_sources[n] = data
+
+    def _push_sources(self):
+        """Re-write all cached source selectors to the PLC (called in Start
+        so the selection survives a PLC reboot).  Tolerated on old PLC
+        programs without the HystSource symbols — the PLC then keeps its
+        hard-wired AnalogIn1..6 recording."""
+        for n in sorted(self.attr_sources):
+            try:
+                self.ads.WriteShort(self._source_var(n)
+                                    + "={:d}".format(self.attr_sources[n]))
+            except Exception:
+                self.warn_stream(
+                    "{} not available on the PLC — recording uses the "
+                    "program's hard-wired sources".format(self._source_var(n)))
+                break
+
     #----- PROTECTED REGION END -----#	//	PyHysteresis.programmer_methods
 
 
@@ -434,9 +648,15 @@ class PyHysteresisClass(PyTango.DeviceClass):
             ["MAIN.HystChannel"] ,
             ],
         'BeckhoffHystChannelValue':
-            [PyTango.DevUShort, 
+            [PyTango.DevUShort,
             "Output channel number for Beckhoff DAC (e.g. 1=long or 2=polar)",
              [],
+            ],
+        'BeckhoffHystSourceBase':
+            [PyTango.DevString,
+            "Base name of the Beckhoff source-selector variables; the channel "
+            "number 1..6 is appended (MAIN.HystSource1 .. MAIN.HystSource6)",
+            ["MAIN.HystSource"] ,
             ],
         'AmperePerVolt':
             [PyTango.DevDouble, 
@@ -461,6 +681,19 @@ class PyHysteresisClass(PyTango.DeviceClass):
             [[PyTango.DevVoid, "none"],
             [PyTango.DevVoid, "none"]],
         'Abort':
+            [[PyTango.DevVoid, "none"],
+            [PyTango.DevVoid, "none"]],
+        'GetNumberOfCycles':
+            [[PyTango.DevVoid, "none"],
+            [PyTango.DevShort, "number of retained cycles"]],
+        'GetCycle':
+            [[PyTango.DevShort, "cycle number (1-based)"],
+            [PyTango.DevVarDoubleArray,
+             "7 blocks of 2*NumberOfPoints: field, result1..result6"]],
+        'SetExcludedCycles':
+            [[PyTango.DevVarShortArray, "1-based cycle numbers to exclude"],
+            [PyTango.DevVoid, "none"]],
+        'RecomputeAverage':
             [[PyTango.DevVoid, "none"],
             [PyTango.DevVoid, "none"]],
         }
@@ -552,6 +785,54 @@ class PyHysteresisClass(PyTango.DeviceClass):
             PyTango.READ, 1000],
             {
                 'unit': "mT",
+            }],
+        'source1':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result1: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source2':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result2: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source3':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result3: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source4':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result4: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source5':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result5: 1..6=AnalogIn1..6, 11..16=ELM1..6",
+            }],
+        'source6':
+            [[PyTango.DevShort,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'Memorized':"true",
+                'description':"Signal recorded into result6: 1..6=AnalogIn1..6, 11..16=ELM1..6",
             }],
         }
 

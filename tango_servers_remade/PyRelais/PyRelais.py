@@ -60,37 +60,57 @@ class PyRelais(Device):
 
     @switchvar.write
     def switchvar(self, value):
-        self._switchvar = value
+        # Cache updated only after the hardware sequence succeeded, so a
+        # failed switch does not leave the cache disagreeing with hardware.
         if value % 2 == 0:
             self.OFF()
         else:
             self.ON()
+        self._switchvar = value
 
     # ---- Commands -------------------------------------------------------
+
+    def _switch(self, turn_on):
+        """Ground → switch → unground.  The unground always runs; if it
+        fails too (e.g. AdsBridge down for the whole sequence), the relay
+        contact may still be grounded — set FAULT with a descriptive status
+        and raise an error carrying BOTH failures instead of letting the
+        unground exception mask the original one."""
+        switch_err = None
+        try:
+            self.ads.WriteBool(self.BeckhoffGround + '=true')
+            time.sleep(0.05)
+            self.ads.WriteBool(self.BeckhoffVariable +
+                               ('=true' if turn_on else '=false'))
+            time.sleep(0.05)
+        except Exception as e:
+            switch_err = e
+        try:
+            self.ads.WriteBool(self.BeckhoffGround + '=false')
+        except Exception as unground_err:
+            self.set_state(DevState.FAULT)
+            self.set_status("Unground write failed — relay contact may still "
+                            "be grounded: {}".format(unground_err))
+            tango.Except.throw_exception(
+                "Relay may still be grounded",
+                "unground failed: {}{}".format(
+                    unground_err,
+                    "; original switch error: {}".format(switch_err)
+                    if switch_err else ""),
+                "PyRelais::_switch")
+        if switch_err is not None:
+            raise switch_err
+        self.set_state(DevState.ON if turn_on else DevState.STANDBY)
 
     @command()
     def ON(self):
         """Set relay to ON (ground → set → unground). unground always runs."""
-        try:
-            self.ads.WriteBool(self.BeckhoffGround + '=true')
-            time.sleep(0.05)
-            self.ads.WriteBool(self.BeckhoffVariable + '=true')
-            time.sleep(0.05)
-        finally:
-            self.ads.WriteBool(self.BeckhoffGround + '=false')
-        self.set_state(DevState.ON)
+        self._switch(True)
 
     @command()
     def OFF(self):
         """Set relay to OFF (ground → clear → unground). unground always runs."""
-        try:
-            self.ads.WriteBool(self.BeckhoffGround + '=true')
-            time.sleep(0.05)
-            self.ads.WriteBool(self.BeckhoffVariable + '=false')
-            time.sleep(0.05)
-        finally:
-            self.ads.WriteBool(self.BeckhoffGround + '=false')
-        self.set_state(DevState.STANDBY)
+        self._switch(False)
 
 
 def main(args=None, **kwargs):

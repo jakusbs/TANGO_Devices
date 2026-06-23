@@ -34,6 +34,16 @@ class AttoDRYCheck(threading.Thread):
                 field_err = abs(self.p.attr_MagneticField_read - self.p.setField)
                 temp_err  = abs(self.p.attr_Temperature_read   - self.p.setTemp)
 
+            # Only check setpoints that were actually written since server
+            # start.  setField/setTemp default to 0.0 after a restart, and
+            # e.g. a sample at 300 K can never converge to 0.0 K — the device
+            # would otherwise be stuck in MOVING forever after the first
+            # field-only (or temperature-only) write.
+            if not getattr(self.p, 'field_setpoint_written', True):
+                field_err = 0.0
+            if not getattr(self.p, 'temp_setpoint_written', True):
+                temp_err = 0.0
+
             if field_err <= FIELD_TOL and temp_err <= TEMP_TOL:
                 self.p.set_state(PyTango.DevState.ON)
                 return

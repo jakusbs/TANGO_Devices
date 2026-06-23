@@ -66,10 +66,16 @@ class ThreadZI(threading.Thread):
                 'ZI: polled {:.3f}s, numpy avg'.format(collect_time))
 
         except Exception as e:
+            # End in FAULT, not ON: a clean RUNNING->ON transition after a
+            # failed acquisition makes the scan engine read stale values as
+            # a successful point. Recover via the Reconnect command.
             try:
                 self.p.error_stream('ThreadZI error: {}'.format(e))
+                self.p.set_state(tango.DevState.FAULT)
+                self.p.set_status('Acquisition failed: {}'.format(e))
             except Exception:
                 pass
+            return
 
         self.p.set_state(tango.DevState.ON)
 

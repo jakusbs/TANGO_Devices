@@ -54,19 +54,15 @@ class HysteresisThread(threading.Thread):
         # variables init
         field = self.p.attr_MagneticField_read/self.p.AmperePerVolt # should not change during run!
         arraylength = self.p.attr_NumberOfPoints_read # should not change during run!
-        result1pos = np.zeros(arraylength)
-        result1neg = np.zeros(arraylength)
-        result2pos = np.zeros(arraylength)
-        result2neg = np.zeros(arraylength)
-        result3pos = np.zeros(arraylength)
-        result3neg = np.zeros(arraylength)
-        result4pos = np.zeros(arraylength)
-        result4neg = np.zeros(arraylength)
-        result5pos = np.zeros(arraylength)
-        result5neg = np.zeros(arraylength)
-        result6pos = np.zeros(arraylength)
-        result6neg = np.zeros(arraylength)
-              
+        # Retain each cycle's raw half-loops so a scan can be inspected
+        # (GetCycle) and kicked out of the average (SetExcludedCycles +
+        # RecomputeAverage) afterwards.  _cyc[ch] = list of (pos, neg) arrays.
+        self.p._cyc = {ch: [] for ch in range(1, 7)}
+        self.p._excluded_cycles = []
+        result_names = [self.p.BeckhoffResult1Name, self.p.BeckhoffResult2Name,
+                        self.p.BeckhoffResult3Name, self.p.BeckhoffResult4Name,
+                        self.p.BeckhoffResult5Name, self.p.BeckhoffResult6Name]
+
         counter = 0
         self.p.attr_CycleReadback_read = counter
         
@@ -92,14 +88,10 @@ class HysteresisThread(threading.Thread):
             # wait until finished (with hard timeout)
             if not self._wait_for_plc_idle("positive half-loop"):
                 return
-            # read results
-            result1pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult1Name+",{:d}".format(arraylength))
-            result2pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult2Name+",{:d}".format(arraylength))
-            result3pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult3Name+",{:d}".format(arraylength))
-            result4pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult4Name+",{:d}".format(arraylength))
-            result5pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult5Name+",{:d}".format(arraylength))
-            result6pos += self.p.ads.ReadRealArray(self.p.BeckhoffResult6Name+",{:d}".format(arraylength))
-            
+            # read this cycle's positive half-loop
+            cyc_pos = [np.asarray(self.p.ads.ReadRealArray(name + ",{:d}".format(arraylength)),
+                                  dtype=float) for name in result_names]
+
             # set negative magnetic field
             self.p.ads.WriteReal(self.p.BeckhoffHystField+"={:6f}".format(-field))
             # start Beckhoff Hysteresis (2nd half loop)
@@ -109,85 +101,17 @@ class HysteresisThread(threading.Thread):
             # wait until finished (with hard timeout)
             if not self._wait_for_plc_idle("negative half-loop"):
                 return
-            # read results
-            result1neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult1Name+",{:d}".format(arraylength))
-            result2neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult2Name+",{:d}".format(arraylength))
-            result3neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult3Name+",{:d}".format(arraylength))
-            result4neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult4Name+",{:d}".format(arraylength))
-            result5neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult5Name+",{:d}".format(arraylength))
-            result6neg += self.p.ads.ReadRealArray(self.p.BeckhoffResult6Name+",{:d}".format(arraylength))
-                        
-            # construct full loop and average:
-            self.p.attr_result1_read = np.concatenate([result1pos,result1neg])/counter
-            self.p.attr_result2_read = np.concatenate([result2pos,result2neg])/counter
-            self.p.attr_result3_read = np.concatenate([result3pos,result3neg])/counter
-            self.p.attr_result4_read = np.concatenate([result4pos,result4neg])/counter
-            self.p.attr_result5_read = np.concatenate([result5pos,result5neg])/counter
-            self.p.attr_result6_read = np.concatenate([result6pos,result6neg])/counter
-            self.p.attr_CycleReadback_read = counter
-            
-            # field channel: result5 (or could be separate for longitudinal and polar)
-            if self.p.BeckhoffHystChannelValue == 1:
-                # longitudinal geometry
-                field_up = result5pos/counter
-                field_dn = result5neg/counter
-            else:
-                # polar geometry
-                field_up = result5pos/counter
-                field_dn = result5neg/counter
-            # field scaling to mT
-            field_up *= 1000/self.p.HallSensitivity * self.p.attr_fieldCorrectionFactor_read # for mTesla scale
-            field_dn *= 1000/self.p.HallSensitivity * self.p.attr_fieldCorrectionFactor_read
-            self.p.attr_field_read = np.concatenate([field_up,field_dn])
-            
-            # calculations: take MOKE signal in result1, field 
-            result_up = self.p.attr_result1_read[:arraylength] #result1pos/counter # first half
-            result_dn = self.p.attr_result1_read[arraylength:] #result1neg/counter # second half
+            # read this cycle's negative half-loop
+            cyc_neg = [np.asarray(self.p.ads.ReadRealArray(name + ",{:d}".format(arraylength)),
+                                  dtype=float) for name in result_names]
 
-            # evaluate Hc, Hshift
-            meanresult = np.mean(np.concatenate([result_up,result_dn])) # average signal of hysteresis
-            """
-            index = np.argmin(abs(result_up-meanresult)) # find index of transition through zero
-            Hc_up = field_up[np.argmin(abs(result_up-meanresult))]
-            index = np.argmin(abs(result_dn-meanresult))
-            Hc_dn = field_dn[np.argmin(abs(result_dn-meanresult))]
-            """
-            # find Hc starting from center of loop
-            # first inspect up branch
-            index = arraylength//2
-            offset = 1
-            while index + offset < arraylength:
-                if (result_up[index+offset] - meanresult)*(result_up[index] - meanresult) < 0:
-                    # going up: change in sign means we found Hc
-                    index=index+offset
-                    break
-                if (result_up[index-offset] - meanresult)*(result_up[index] - meanresult) < 0:
-                    # going up: change in sign means we found Hc
-                    index=index-offset
-                    break
-                offset += 1
-            Hc_up = field_up[index]
-            # now same for down branch            
-            index = arraylength//2
-            offset = 1
-            while index + offset < arraylength:
-                if (result_dn[index+offset] - meanresult)*(result_dn[index] - meanresult) < 0:
-                    # going up: change in sign means we found Hc
-                    index=index+offset
-                    break
-                if (result_dn[index-offset] - meanresult)*(result_dn[index] - meanresult) < 0:
-                    # going up: change in sign means we found Hc
-                    index=index-offset
-                    break
-                offset += 1
-            Hc_dn = field_dn[index]
-            
-            self.p.attr_Hc_read = (Hc_up - Hc_dn)/2.0 # half of the opening
-            self.p.attr_Hshift_read = (Hc_up + Hc_dn)/2.0 # average value of switching fields
-                        
-            # evaluate remanence Mr and saturation magnetization Ms
-            self.p.attr_Mr_read = (result_up[arraylength//2] - result_dn[arraylength//2])/2;
-            self.p.attr_Ms_read = (result_up[0] + result_dn[-1] - result_up[-1] - result_dn[0])/2
+            # retain the individual cycle, then (re)average over all cycles so
+            # far.  Averaging + Hc/Hshift/Mr/Ms derivation live in one shared
+            # method on the device so the live loop and RecomputeAverage agree.
+            for ch in range(1, 7):
+                self.p._cyc[ch].append((cyc_pos[ch - 1], cyc_neg[ch - 1]))
+            self.p._average_and_derive(range(1, counter + 1))
+            self.p.attr_CycleReadback_read = counter
         
         # all cycles are done, set the tango state back to ON
         self.p.set_state(PyTango.DevState.ON)

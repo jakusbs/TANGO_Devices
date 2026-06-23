@@ -342,3 +342,92 @@ With short integration times and no Jive panel open, `Start()` occasionally retu
 - **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.
 - **Magnet zero-guards**: `HallSensitivity_*` and `AmperePerVolt_*` are mandatory properties, but there is no runtime guard against a user setting them to 0 via Jive. Consider adding checks in `init_device`.
 - **DG645 dev_state()**: polls `LERR?` on every state query, which can be frequent. If the state polling overhead becomes a problem, cache the last known state and only re-query after a timeout.
+
+---
+
+## Recent Changes (June 2026) — Server Reliability & PyHysteresis Source Selection
+
+All on branch `claude/app-review-suggestions-jozwry`. Compile-checked
+(`python -m py_compile`); only `tango_servers_remade/` + `tango_servers_new/`
+are in use (never `tango_servers_old/`). Deployed and verified on hardware:
+the PLC `HystSource` change + new PyHysteresis work.
+
+### Socket (remade)
+- `_connect()` clears `self._sock = None` before reconnecting, so a failed
+  reconnect (e.g. Keithley TIME_WAIT) no longer leaves a dangling closed handle
+  whose `EBADF` errors permanently defeat AutoReconnect.
+- `recv()` returning `b''` (orderly peer close — the Keithley silent-drop case)
+  is now treated as a connection error via `_peer_closed()` → disconnect/reconnect
+  + `DevFailed`. Partial reads that already received data keep the old behaviour.
+
+### AttoDRY (remade)
+- `Connect()` restarts the daemon listener it stops for the port rebind (a manual
+  Connect from Jive used to freeze all readbacks forever); `Disconnect()` stops it
+  cleanly first. Daemon logs + sets FAULT when it dies unexpectedly.
+- Toggle writes (field / temperature / persistent-mode control) only send the
+  toggle command when the requested value differs from the cached readback —
+  writing the current value no longer flips the hardware state (persistent mode!).
+- `AttoDRYCheck` only tests setpoints actually written since startup, so a
+  field-only write after a restart no longer wedges the device in MOVING waiting
+  for the default 0.0 K temperature target. **Pairs with the Samba FIELD ramp-wait.**
+
+### ANC300 (remade)
+- Write commands (`setf`/`setv`/`setm`/`stepu`/`stepd`) drain their echo + OK/ERROR
+  reply (tolerant, bounded by `Readtimeout`) so replies no longer pile up and
+  desync later `getf`/`getv`/`getm` reads; queries drain stale bytes first. An
+  explicit `ERROR` raises (rejected writes no longer update caches).
+
+### AdsBridge2 (new)
+- `self.lock` + `self.plc = None` created **before** the connection attempt, so a
+  failed init leaves `Reconnect` usable (it now rebuilds the connection when
+  `plc is None`); `delete_device` guarded.
+- `ReadRealArray` / `ReadLongIntArray` raise `DevFailed` instead of returning
+  `[-10.0]*n` filler and latching FAULT forever (matches the DoubleInBeckhoffAverage fix).
+
+### PyKeithley / PyKeithley2 (remade)
+- Track `_wave_running`; writing `frequency` while a sine wave runs re-arms the
+  wave (same approach as PyKeithleyPulse) instead of silently keeping the old
+  frequency until the next amplitude write. No SCPI sequences changed.
+
+### PyRelais (remade)
+- If the unground write in the `finally` path also fails, set FAULT with
+  "relay may still be grounded" and raise an error carrying **both** failures
+  instead of masking the original; `switchvar` cache updates only after success.
+
+### Magnet (remade)
+- Current writes reject (not clamp) setpoints whose computed DAC voltage exceeds
+  ±10 V, reported in **Ampere** (`±10 V × AmperePerVolt`), matching ANM200's guard.
+- Restored memorized `corr_polar` / `corr_longitudinal` (`memorized=True,
+  hw_memorized=True`) — the C++ XMI had them memorized; the Python port had lost
+  it, so the correction factors silently reset to 1.0 on every restart.
+
+### ZI / ZI2 (new) — Start race + failed-acquisition state
+- `Start()` sets `RUNNING` synchronously before `thread.start()` so a fast
+  double-Start cannot spawn two acquisition threads.
+- A failed acquisition ends in **FAULT** (with a status) instead of a clean
+  RUNNING→ON that let the scan engine read stale values as a good point.
+- The packaged `ZI_DAQ/` / `ZI2_DAQ/` copies were stale v4 snapshots —
+  regenerated from the v5 sources via each install script's copy+sed recipe.
+
+### PyHysteresis (new) — source selection, per-cycle retention, engine interlock
+- **Selectable sources**: memorized `source1`–`source6` attributes (1–6 =
+  AnalogIn1–6, 11–16 = ELM1–6) write `MAIN.HystSource1–6`, re-pushed at every
+  `Start()`. **Requires the PLC change** in `PLC_source_selection.md` (HystSource
+  selectors + a clamped `HystSrc[1..16]` pool indexed by the six recording lines;
+  defaults preserve the old AnalogIn1–6 behaviour, so **old/unmodified servers
+  still work unchanged**). On PLC programs without the symbols the write raises a
+  clear error.
+- **Single-engine interlock**: `Start()` reads `MAIN.HystRunning` first and raises
+  "Hysteresis engine busy" — the polar & longitudinal devices are instances of one
+  class sharing one PLC engine and cannot run simultaneously (a second Start used
+  to reset the running loop's arrays and corrupt both). Sequential use only.
+- **Per-cycle retention**: each cycle's raw half-loops are kept (`_cyc[ch]`).
+  New commands `GetNumberOfCycles`, `GetCycle(n)` (7 blocks of `2×NumberOfPoints`:
+  field + result1–6), `SetExcludedCycles(short[])`, `RecomputeAverage()` —
+  inspect individual scans and drop a bad one from the average without
+  re-measuring. Averaging + Hc/Hshift/Mr/Ms derivation extracted into one shared
+  `_average_and_derive(included)` used by both the live loop and recompute
+  (verified numerically identical to the original inline math for the all-cycles case).
+
+### Housekeeping
+- Removed 17 tracked `__pycache__/*.pyc`; added `.gitignore` (bytecode, build/, egg-info).

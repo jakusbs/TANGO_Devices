@@ -234,6 +234,50 @@ class SmarActMCS2Stage(Device):
         self.set_status("All axes stopped.")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Stop
 
+    @command(
+    )
+    @DebugIt()
+    def Initialise(self):
+        # PROTECTED REGION ID(SmarActMCS2Stage.Initialise) ENABLED START #
+        """
+        Re-initialise all three motor axes — the fix for a wedged SmarAct axis
+        after manual use with the hand controller.  Sends the standard TANGO
+        ``Init`` command to each underlying motor device (X, Y, Z), which
+        re-runs its ``init_device`` and re-establishes the MCS2 connection
+        (this is the "Initialise" one otherwise clicks per-axis in Jive —
+        distinct from Home / CalibrateAxis).  The stage's own cached proxies
+        are then refreshed.  All axes are attempted even if one fails; any
+        errors are collected and raised together.
+
+        :rtype: PyTango.DevVoid
+        """
+        errors = []
+        for name, dev in [("X", self.XMotorDevice),
+                          ("Y", self.YMotorDevice),
+                          ("Z", self.ZMotorDevice)]:
+            try:
+                tango.DeviceProxy(dev).command_inout("Init")
+            except Exception as e:
+                errors.append(f"{name} ({dev}): {e}")
+                self.warn_stream(f"Failed to initialise {name} axis: {e}")
+        # Refresh our own proxies so the next read/write hits the fresh motors.
+        try:
+            self._x_proxy = tango.DeviceProxy(self.XMotorDevice)
+            self._y_proxy = tango.DeviceProxy(self.YMotorDevice)
+            self._z_proxy = tango.DeviceProxy(self.ZMotorDevice)
+        except Exception as e:
+            errors.append(f"stage proxies: {e}")
+        if errors:
+            self.set_state(DevState.FAULT)
+            self.set_status("Initialise errors: " + "; ".join(errors))
+            tango.Except.throw_exception(
+                "Initialise failed",
+                "; ".join(errors),
+                "SmarActMCS2Stage::Initialise")
+        self.set_state(DevState.ON)
+        self.set_status("All axes re-initialised.")
+        # PROTECTED REGION END #    //  SmarActMCS2Stage.Initialise
+
 # ----------
 # Run server
 # ----------

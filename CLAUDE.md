@@ -294,6 +294,7 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 
 ### SmarActMCS2Stage (in tango_servers_new/)
 - Wraps three motor axis proxies. If any `DeviceProxy` fails in `init_device`, the corresponding `_x_proxy` / `_y_proxy` / `_z_proxy` stays `None`; attribute reads and `Stop()` now guard against this and raise a clear `DevFailed` instead of `AttributeError`.
+- **`Initialise` command** (July 2026): re-initialises all three axes — the fix for a wedged IR SmarAct axis after manual hand-controller use. Propagates the standard TANGO `Init` command to each underlying motor device (X/Y/Z), which re-runs its `init_device` and re-establishes the MCS2 connection (distinct from Home / CalibrateAxis), then refreshes the stage's own cached proxies. All axes are attempted even if one fails; errors are collected and raised together as a single `DevFailed`. SAMBA's Calibration tab has a "⟲ Reinitialise" button that calls this (falling back to `Init` on servers predating the command).
 
 ### SetupLock (in tango_servers_new/)
 - Three-way mutex device (green / IR / cryo setups). State flips to `RUNNING` when any `*Busy` flag is True, otherwise `ON`.

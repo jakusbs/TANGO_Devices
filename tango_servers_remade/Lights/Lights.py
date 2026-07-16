@@ -6,7 +6,7 @@ Controls two LEDs via Beckhoff digital outputs through an AdsBridge2 proxy.
 
 import tango
 from tango import DevState, AttrWriteType
-from tango.server import Device, command, device_property, run
+from tango.server import Device, attribute, command, device_property, run
 
 __all__ = ["Lights", "main"]
 
@@ -46,6 +46,21 @@ class Lights(Device):
 
     def always_executed_hook(self):
         pass
+
+    # ---- Attributes ------------------------------------------------------
+    # Read-back of the two LED states from the Beckhoff digital outputs, so
+    # clients (SAMBA's Calibration tab) can show the actual on/off state
+    # instead of only tracking the last command they sent.
+
+    @attribute(dtype=bool)
+    def led1(self):
+        """LED 1 state (True = on), read live from the Beckhoff output."""
+        return bool(self.ads.ReadBool(self.Light1))
+
+    @attribute(dtype=bool)
+    def led2(self):
+        """LED 2 state (True = on), read live from the Beckhoff output."""
+        return bool(self.ads.ReadBool(self.Light2))
 
     # ---- Commands -------------------------------------------------------
 

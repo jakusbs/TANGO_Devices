@@ -253,8 +253,12 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 - All read **and** write commands hold `self.lock` (a `threading.Lock`) — concurrent access is safe.
 - `ReadBool` input: plain variable name (e.g. `MAIN.Averaging`)
 - `WriteBool` input: `"VARIABLE=true"` or `"VARIABLE=false"` — note the asymmetry with ReadBool.
-- `Reconnect` command: closes and reopens the ADS connection without restarting the server process. Use after a PLC reboot or network fault.
-- No automatic reconnection — if the ADS connection drops for any reason other than calling `Reconnect`, all subsequent commands will throw exceptions until `Reconnect` is called.
+- `Reconnect` command: closes and reopens the ADS connection without restarting the server process. Still available for manual use, but no longer required for recovery (see below).
+- **Auto-reconnect (July 2026)** — two layers, both controlled by the `AutoReconnect` device property (default `True`):
+  - *On-demand*: every command runs through `_ads_call()`; on failure the connection is rebuilt and the operation retried **once** before the error propagates. A link that died since the last command costs one hiccup instead of `-----` panels until a manual `Reconnect`. ADS error 1808 (symbol not found — a caller mistake, e.g. `HystSource` on an old PLC program) is never retried.
+  - *Keepalive watchdog*: a daemon thread issues a lightweight ADS `read_state()` every `KeepaliveInterval` seconds (property, default 10 s; 0 disables). This keeps the connection non-idle (defeats idle-session timeouts in network gear / the PLC router) and repairs a dead link between commands. It acquires the lock **non-blocking** — if a command holds it, traffic is flowing and the keepalive round is skipped, so the watchdog never delays real I/O. If `read_state()` keeps failing on fresh connections (3× in a row) the watchdog disables itself (quirky target) and only on-demand reconnect remains.
+- The device **status string** carries a reconnect counter and timestamp (`ADS reconnect #N at HH:MM:SS — trigger: …`) — use it to diagnose periodic connection drops (e.g. an every-5-minutes pattern points at an idle/session timeout in the path to the PLC).
+- A failed connection at `init_device` no longer throws: the device starts FAULT and self-heals via the watchdog / first command once the PLC is reachable.
 
 ---
 
@@ -339,7 +343,6 @@ With short integration times and no Jive panel open, `Start()` occasionally retu
 
 - **D02 firmware on Keithley unit 1**: The real fix is updating to D04. The AutoReconnect in Socket provides a software mitigation but the firmware drop is the root cause.
 - **Network switch/router timeout**: Both Keithleys dropping connections suggests a network device may be killing idle TCP sessions. TCP keepalives (already attempted but reverted due to other bugs) or periodic heartbeat commands would help if confirmed.
-- **AdsBridge2 auto-reconnect**: currently requires manual `Reconnect` command after PLC reboot. A watchdog that detects ADS errors and retries would be an improvement.
 - **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.
 - **Magnet zero-guards**: `HallSensitivity_*` and `AmperePerVolt_*` are mandatory properties, but there is no runtime guard against a user setting them to 0 via Jive. Consider adding checks in `init_device`.
 - **DG645 dev_state()**: polls `LERR?` on every state query, which can be frequent. If the state polling overhead becomes a problem, cache the last known state and only re-query after a timeout.
@@ -432,3 +435,31 @@ the PLC `HystSource` change + new PyHysteresis work.
 
 ### Housekeeping
 - Removed 17 tracked `__pycache__/*.pyc`; added `.gitignore` (bytecode, build/, egg-info).
+
+---
+
+## Recent Changes (July 2026) — AdsBridge2 Auto-Reconnect & Keepalive Watchdog
+
+Branch `claude/magnet-tango-network-issues-875e80`. Background: the magnet
+panel showed `-----` (all reads throwing) while AdsBridge2 and the Magnet
+device stayed green, reproducibly ~5 minutes after a manual restart —
+the ADS TCP session to the Beckhoff dies and nothing ever rebuilt it.
+
+- `_ads_call()` wraps every command: on failure → reconnect → retry once →
+  only then raise. ADS err 1808 (symbol not found) exempted from retry.
+- Keepalive watchdog thread (`KeepaliveInterval` property, default 10 s,
+  0 = off): ADS `read_state()` when the lock is free; reconnects a dead
+  link between commands; self-disables after 3 consecutive `read_state`
+  failures on *fresh* connections (quirky target protection).
+- New `AutoReconnect` bool property (default True) gates both layers.
+- Status string counts reconnects with timestamps — a steadily climbing
+  counter is the diagnostic for a periodic session-killer in the network
+  path (switch idle timeout, PLC router).
+- `init_device` no longer throws when the PLC is unreachable — starts
+  FAULT and self-heals. `Reconnect` command kept (now uses the shared
+  `_reconnect_locked`). `delete_device` stops the watchdog cleanly
+  (Init-safe). Both new properties documented in `AdsBridge2.xmi`.
+- Headless behavior test (stubbed pyads/tango): retry-once semantics,
+  1808 exemption, AutoReconnect=False, keepalive repair, FAULT clearing,
+  failed-init self-heal — 17 checks. Not committed (stub scaffolding);
+  `py_compile` clean.

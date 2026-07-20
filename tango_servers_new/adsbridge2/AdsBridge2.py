@@ -30,6 +30,7 @@ from tango import AttrWriteType
 # PROTECTED REGION ID(AdsBridge2.additionnal_import) ENABLED START #
 import pyads
 import threading
+import time
 import PyTango
 # PROTECTED REGION END #    //  AdsBridge2.additionnal_import
 
@@ -77,6 +78,23 @@ class AdsBridge2(Device):
         doc="ADS Port"
     )
 
+    AutoReconnect = device_property(
+        dtype=bool,
+        default_value=True,
+        doc="Rebuild the ADS connection automatically: a failed command "
+            "reconnects and retries once before raising, and the keepalive "
+            "watchdog repairs a dead link between commands."
+    )
+
+    KeepaliveInterval = device_property(
+        dtype=float,
+        default_value=10.0,
+        doc="Seconds between watchdog keepalive reads (ADS ReadState). "
+            "Keeps the connection non-idle (defeats idle-session timeouts "
+            "in network gear / the PLC router) and detects a dead link "
+            "between commands. 0 disables the watchdog thread."
+    )
+
     # ---------------
     # General methods
     # ---------------
@@ -91,18 +109,141 @@ class AdsBridge2(Device):
         # with AttributeError instead of a clean DevFailed.
         self.lock = threading.Lock()
         self.plc = None
+        self._reconnects = 0     # auto/manual reconnects since server start
+        self._hb_fresh_fails = 0 # consecutive keepalive failures on a fresh connection
+        self._wd_stop = threading.Event()
+        self._wd_thread = None
         try:
-            pyads.add_route(self.PlcAmsAddress, self.PlcIP)
-            #self.plc = pyads.Connection(self.PlcAmsAddress, 851)
-            self.plc = pyads.Connection(self.PlcAmsAddress, self.Port)
-            self.plc.open()
+            with self.lock:
+                self._open_plc_locked()
+        except Exception as e:
+            # Do NOT throw: the watchdog / on-demand reconnect keep
+            # retrying, so a PLC that is down at server start is picked
+            # up automatically once it comes back.
+            self.set_state(PyTango.DevState.FAULT)
+            self.set_status("ADS connection failed at init: {}".format(e))
+        else:
+            self.set_state(PyTango.DevState.ON)
+        if self.KeepaliveInterval > 0:
+            self._wd_thread = threading.Thread(
+                target=self._watchdog, name="AdsBridge2-watchdog", daemon=True)
+            self._wd_thread.start()
+        # PROTECTED REGION END #    //  AdsBridge2.init_device
+
+    # ------------------------------------------------------------------
+    # Connection management (auto-reconnect + keepalive watchdog)
+    # ------------------------------------------------------------------
+
+    # ADS error codes that are caller mistakes, not a dead link — never
+    # worth a reconnect+retry (1808 = symbol not found, e.g. writing
+    # HystSource1..6 to a PLC program that predates them).
+    _NO_RETRY_ADS_CODES = {1808}
+
+    def _open_plc_locked(self):
+        """(Re)build and open the ADS connection. Caller holds self.lock."""
+        if self.plc is not None:
+            try:
+                self.plc.close()
+            except Exception:
+                pass
+            self.plc = None
+        pyads.add_route(self.PlcAmsAddress, self.PlcIP)
+        plc = pyads.Connection(self.PlcAmsAddress, self.Port)
+        plc.open()
+        self.plc = plc
+
+    def _reconnect_locked(self, reason=""):
+        """Rebuild the connection (caller holds self.lock). Raises on failure."""
+        try:
+            self._open_plc_locked()
         except Exception as e:
             self.set_state(PyTango.DevState.FAULT)
-            PyTango.Except.throw_exception("Unable to kinit ADS bridge",
-                str(e),
-                "AdsBridge2::init_device")
+            self.set_status("ADS reconnect failed at {} ({}); retrying — "
+                            "trigger was: {}".format(
+                                time.strftime("%H:%M:%S"), e, reason))
+            raise
+        self._reconnects += 1
         self.set_state(PyTango.DevState.ON)
-        # PROTECTED REGION END #    //  AdsBridge2.init_device
+        self.set_status("ADS reconnect #{} at {} — trigger: {}".format(
+            self._reconnects, time.strftime("%H:%M:%S"), reason))
+
+    def _ads_call(self, op):
+        """Run one ADS operation under the lock.
+
+        On failure the connection is rebuilt and the operation retried
+        once before the error propagates, so a link that died since the
+        last command costs one hiccup instead of a failed read (and a
+        '-----' panel) until someone runs Reconnect by hand.
+        """
+        with self.lock:
+            try:
+                return op()
+            except Exception as e:
+                if (not self.AutoReconnect
+                        or getattr(e, 'err_code', None) in self._NO_RETRY_ADS_CODES):
+                    raise
+                self._reconnect_locked(reason="command error: {}".format(e))
+                return op()
+
+    def _watchdog(self):
+        """Keepalive loop (daemon thread).
+
+        A lightweight ADS ReadState every KeepaliveInterval seconds keeps
+        the connection non-idle and repairs a dead link between commands.
+        The non-blocking acquire means the watchdog never delays a real
+        command: if the lock is busy, traffic is flowing and no keepalive
+        is needed anyway.
+        """
+        try:
+            guard = tango.EnsureOmniThread()
+        except AttributeError:  # pytango < 9.3.2
+            import contextlib
+            guard = contextlib.nullcontext()
+        with guard:
+            interval = max(1.0, float(self.KeepaliveInterval))
+            while not self._wd_stop.wait(interval):
+                if not self.lock.acquire(blocking=False):
+                    continue
+                try:
+                    self._keepalive_locked()
+                finally:
+                    self.lock.release()
+
+    def _keepalive_locked(self):
+        try:
+            if self.plc is None:
+                raise RuntimeError("no ADS connection")
+            self.plc.read_state()
+        except Exception as e:
+            if not self.AutoReconnect:
+                self.set_state(PyTango.DevState.FAULT)
+                self.set_status("ADS keepalive failed: {}".format(e))
+                return
+            try:
+                self._reconnect_locked(reason="keepalive: {}".format(e))
+            except Exception:
+                return  # FAULT + status already set; retry next cycle
+            try:
+                self.plc.read_state()
+                self._hb_fresh_fails = 0
+            except Exception as e2:
+                # ReadState failing right after a successful reconnect —
+                # after 3 in a row assume ReadState itself is the problem
+                # (quirky target) and stop churning connections. The
+                # on-demand reconnect in _ads_call still protects commands.
+                self._hb_fresh_fails += 1
+                if self._hb_fresh_fails >= 3:
+                    self.warn_stream(
+                        "keepalive ReadState keeps failing on fresh "
+                        "connections ({}) — watchdog disabled, on-demand "
+                        "reconnect remains active".format(e2))
+                    self._wd_stop.set()
+        else:
+            self._hb_fresh_fails = 0
+            if self.get_state() == PyTango.DevState.FAULT:
+                self.set_state(PyTango.DevState.ON)
+                self.set_status("ADS connection healthy again at {}".format(
+                    time.strftime("%H:%M:%S")))
 
     def always_executed_hook(self):
         """Method always executed before any TANGO command is executed."""
@@ -118,6 +259,11 @@ class AdsBridge2(Device):
         destructor and by the device Init command.
         """
         # PROTECTED REGION ID(AdsBridge2.delete_device) ENABLED START #
+        if getattr(self, '_wd_stop', None) is not None:
+            self._wd_stop.set()
+        wd = getattr(self, '_wd_thread', None)
+        if wd is not None and wd.is_alive():
+            wd.join(timeout=2.0)
         if getattr(self, 'plc', None) is not None:
             try:
                 self.plc.close()
@@ -136,20 +282,8 @@ class AdsBridge2(Device):
         """Close and reopen the ADS connection. Use after a PLC reboot or network fault."""
         try:
             with self.lock:
-                if self.plc is None:
-                    # init_device never managed to connect — build the
-                    # connection from scratch so Reconnect can recover
-                    # without an Init/restart.
-                    pyads.add_route(self.PlcAmsAddress, self.PlcIP)
-                    self.plc = pyads.Connection(self.PlcAmsAddress, self.Port)
-                else:
-                    self.plc.close()
-                self.plc.open()
-            self.set_state(PyTango.DevState.ON)
-            self.set_status("Reconnected")
+                self._reconnect_locked(reason="manual Reconnect command")
         except Exception as e:
-            self.set_state(PyTango.DevState.FAULT)
-            self.set_status("Reconnect failed: {}".format(e))
             PyTango.Except.throw_exception("Reconnect failed", str(e), "AdsBridge2::Reconnect")
         # PROTECTED REGION END #    //  AdsBridge2.Reconnect
 
@@ -163,8 +297,8 @@ class AdsBridge2(Device):
     def ReadBool(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadBool) ENABLED START #
         try:
-            with self.lock:
-                return self.plc.read_by_name(argin, pyads.PLCTYPE_BOOL)
+            return self._ads_call(
+                lambda: self.plc.read_by_name(argin, pyads.PLCTYPE_BOOL))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read bool",
                 str(e),
@@ -192,8 +326,8 @@ class AdsBridge2(Device):
                 "AdsBridge2::WriteBool")
         
         try:
-            with self.lock:
-                self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_BOOL)
+            self._ads_call(
+                lambda: self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_BOOL))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to set bool",
                 str(e),
@@ -211,8 +345,8 @@ class AdsBridge2(Device):
     def ReadInt(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadInt) ENABLED START #
         try:
-            with self.lock:
-                return self.plc.read_by_name(argin, pyads.PLCTYPE_DINT)
+            return self._ads_call(
+                lambda: self.plc.read_by_name(argin, pyads.PLCTYPE_DINT))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read int",
                 str(e),
@@ -229,8 +363,8 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = int(strings[1])
-            with self.lock:
-                self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_DINT)
+            self._ads_call(
+                lambda: self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_DINT))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write int",
                 str(e),
@@ -247,8 +381,8 @@ class AdsBridge2(Device):
     def ReadReal(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadReal) ENABLED START #
         try:
-            with self.lock:
-                return self.plc.read_by_name(argin, pyads.PLCTYPE_LREAL)
+            return self._ads_call(
+                lambda: self.plc.read_by_name(argin, pyads.PLCTYPE_LREAL))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read lreal",
                 str(e),
@@ -265,8 +399,8 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = float(strings[1])
-            with self.lock:
-                self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_LREAL)
+            self._ads_call(
+                lambda: self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_LREAL))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write lreal",
                 str(e),
@@ -283,8 +417,8 @@ class AdsBridge2(Device):
     def ReadShort(self, argin):
         # PROTECTED REGION ID(AdsBridge2.ReadShort) ENABLED START #
         try:
-            with self.lock:
-                return self.plc.read_by_name(argin, pyads.PLCTYPE_INT)
+            return self._ads_call(
+                lambda: self.plc.read_by_name(argin, pyads.PLCTYPE_INT))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to read short",
                 str(e),
@@ -301,8 +435,8 @@ class AdsBridge2(Device):
         try:
             strings = argin.split('=')
             arg = int(strings[1])
-            with self.lock:
-                self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_INT)
+            self._ads_call(
+                lambda: self.plc.write_by_name(strings[0], arg, pyads.PLCTYPE_INT))
         except Exception as e:
             PyTango.Except.throw_exception("Unable to write short",
                 str(e),
@@ -332,9 +466,9 @@ class AdsBridge2(Device):
             if count < 1:
                 count = 1
 
-            with self.lock:
-                # pyads syntax for reading arrays: Type * Count
-                return self.plc.read_by_name(var_name, pyads.PLCTYPE_LREAL * count)
+            # pyads syntax for reading arrays: Type * Count
+            return self._ads_call(
+                lambda: self.plc.read_by_name(var_name, pyads.PLCTYPE_LREAL * count))
 
         except Exception as e:
             # Throw like every other command — the old C++-style -10.0
@@ -372,9 +506,9 @@ class AdsBridge2(Device):
             if count > 750:
                 count = 750
 
-            with self.lock:
-                # pyads syntax for reading arrays of DINT (32-bit int)
-                return self.plc.read_by_name(var_name, pyads.PLCTYPE_DINT * count)
+            # pyads syntax for reading arrays of DINT (32-bit int)
+            return self._ads_call(
+                lambda: self.plc.read_by_name(var_name, pyads.PLCTYPE_DINT * count))
 
         except Exception as e:
             # Throw like every other command (see ReadRealArray).

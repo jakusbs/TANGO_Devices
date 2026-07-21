@@ -1,0 +1,31 @@
+#include <iostream>
+#include <string>
+#include <MCSControl.h>
+
+
+using namespace std;
+
+int main(int argc, char** argv)
+{
+    string locator("network:192.168.132.90:55550");
+	SA_INDEX handle;
+	SA_STATUS retval;
+
+    if((retval = SA_OpenSystem(&handle, locator.str().c_str(), "sync")) != SA_OK)
+	{
+		const char* tmp;
+        cerr << "Retval: " << retval << " " << SA_GetStatusInfo(retval, &tmp) << tmp << endl;
+        exit(255);
+    }
+    if((retval = SA_CloseSystem(handle)) != SA_OK)
+	{
+		const char* tmp;
+		SA_GetStatusInfo(retval, &tmp);
+	}
+    exit(0);
+}
+
+
+
+
+    

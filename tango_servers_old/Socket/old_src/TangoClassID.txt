@@ -1,0 +1,11 @@
+/**
+ * Device Class Identification:
+ * 
+ * Class Name   :	Socket
+ * Contact      :	acremann@me.com
+ * Class Family :	Miscellaneous
+ * Platform     :	All Platforms
+ * Bus          :	Not Applicable
+ * Manufacturer :	none
+ * Reference    :	
+ */

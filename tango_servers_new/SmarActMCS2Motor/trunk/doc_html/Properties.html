@@ -1,0 +1,60 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html>
+<head>
+<title> SmarActMCS2Motor Tango Class Properties </title>
+</head>
+<body text="Black" bgcolor="White" link="Blue" vlink="Purple" alink="Red">
+<br><br><br>
+<font size="+1"><u><b> SmarActMCS2Motor  Properties : </b></u></font>
+<br><br><br>
+<font size="+1"><u><b> There is no class properties </b></u></font>
+<br><br><br>
+<Table Border=2 Cellpadding=3 CELLSPACING=0>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+	<td colspan=4> <font size=+1> <center><b> Device Properties </b></font></center></td>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+		<td> <center><b> Name </b></center> </td>
+		<td> <center><b> Description </b></center> </td>
+		<td> <center><b> Type </b></center> </td>
+		<td> <center><b> Default Value </b></center> </td>
+	</tr>
+	<tr>
+		<td> SmarActMCS2CtrlDevice </td>
+		<td> Name of SmarActMCS2Ctrl device </td>
+		<td> String </td>
+		<td> none </td>
+	</tr>
+	<tr>
+		<td> AxisNumber </td>
+		<td> axis index number </td>
+		<td> int </td>
+		<td> none </td>
+	</tr>
+	<tr>
+		<td> PicoScaleEncoded </td>
+		<td> Set to true, if this axis uses a picoscale interferometer<Br>
+			as encoder (may need server code recompile<Br>
+			with `make PICOSCALESUPPORT=yes`) </td>
+		<td> boolean </td>
+		<td> false <br> </td>
+	</tr>
+	<tr>
+		<td> SensorType </td>
+		<td> Normally the sensor type will be configured by Smaract for<Br>
+			the positioners the controller was ordered/delivered with. If<Br>
+			this property is 0 (the default value) we assume that this<Br>
+			is still the case, no modification to the controller-stored<Br>
+			sensor type will be done.<Br>
+			<Br>
+			<Br>
+			If you ever change to a different type of positioner its sensor type<Br>
+			code has to be given to the controller. Check out the type<Br>
+			code from the smaract docs (MCS2PositionerTypes.pdf.gz)<Br>
+			and enter it here. It will be written to the controller at server<Br>
+			start. </td>
+		<td> int </td>
+		<td> 0 <br> </td>
+	</tr>
+</table>
+</body>
+</html>

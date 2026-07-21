@@ -1,0 +1,384 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html>
+<head>
+<title> SmarActMCS2Motor Tango Class Attributes </title>
+</head>
+<body text="Black" bgcolor="White" link="Blue" vlink="Purple" alink="Red">
+<br><br><br><br>
+<Table Border=2 Cellpadding=3 CELLSPACING=0>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+	<td colspan=8> <font size=+1> <center><b> SmarActMCS2Motor Class Attributes </b></font></center></td>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+		<td> <center><b> Name </b></center> </td>
+		<td> <center><b> Inherited </b></center> </td>
+		<td> <center><b> Abstract </b></center> </td>
+		<td> <center><b> Attr. type </b></center> </td>
+		<td> <center><b> R/W type </b></center> </td>
+		<td> <center><b> Data type </b></center> </td>
+		<td> <center><b> Level </b></center> </td>
+		<td> <center><b> Description </b></center> </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrMoveMode.html"> MoveMode </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Get/Set move mode. This might mofify meaning and behaviour of Position attribute<Br>
+			<Br>
+			0 : closed loop absolute<Br>
+			1 : closed loop relative<Br>
+			2 : scan mode absolute<Br>
+			3 : scan mode relative<Br>
+			 4 : step mode </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrStepAmplitude.html"> StepAmplitude </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets/sets step amplitude for open-loop movements.<Br>
+			Value range: 1 - 65535<Br>
+			65535 corresponds to 100V </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrStepFrequency.html"> StepFrequency </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets/sets step frequency for open-loop movements.<Br>
+			Value range: 1 - 20000 Hz </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrPosition.html"> Position </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td> Native units are picometer for linear axes and nanodegrees for rotary axes.<Br>
+			Can be changed by adjusting conversion attribute. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrConversion.html"> Conversion </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td> Factor for converting encoder steps to units, defaults to 1 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrUnitLimitMin.html"> UnitLimitMin </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td> MInimum position in units we are allowed to go to.<Br>
+			If both UnitLimitMin and UnitLimitMax are set to 0 limit settings are ignored. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrUnitLimitMax.html"> UnitLimitMax </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td> Maximum position in units we are allowed to go to.<Br>
+			If both UnitLimitMin and UnitLimitMax are set to 0 limit settings are ignored. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrAutoZero.html"> AutoZero </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> If set to true, the current position will be set to 0 when the reference mark is found<Br>
+			on running the Home command. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrHoldTime.html"> HoldTime </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Closed loop velocity hold time (time in ms the position is actively held after reaching the target posi-<Br>
+			tion)<Br>
+			<Br>
+			Range: 0 - 4294967295 (0 disables holding, max value is for infinite, i.e. hold until motor is stopped) </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrSpeed.html"> Speed </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Closed loop velocity, pm s^-1  for linear movements, n° s^?1 for rotary movements<Br>
+			<Br>
+			Range: 0 - 100000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrPositionKnown.html"> PositionKnown </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> True, if physical position is known (i.e. Home command ran successfully) </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrAxisType.html"> AxisType </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> The axis type,<Br>
+			<Br>
+			0: linear movement<Br>
+			1: rotary movement<Br>
+			2: goniometer<Br>
+			3: tilt movement </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrMaxFrequency.html"> MaxFrequency </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> The maximum closed loop frequency in hz (50 - 20000). If you experience<Br>
+			sudden stops on one axis when starting a movement on another<Br>
+			try setting this to a lower value. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrSensorType.html"> SensorType </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Sensor type number, check with hardware doc (MCS2PositionerTypes.pdf) </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrStepLimitMin.html"> StepLimitMin </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> This attribute uses the controllers ability to store limit values. If this value is set a movement<Br>
+			will stop if this limit is hit.<Br>
+			The attribute does not take conversion into account, it treats values as encoder steps.<Br>
+			<Br>
+			To enable this feature set StepLimitMax to a value greater than StepLimitMin.<Br>
+			<Br>
+			Valid range: -100000000000000 - 100000000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrStepLimitMax.html"> StepLimitMax </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> This attribute uses the controllers ability to store limit values. If this value is set a movement<Br>
+			will stop if this limit is hit.<Br>
+			The attribute does not take conversion into account, it treats values as encoder steps.<Br>
+			<Br>
+			To enable this feature set StepLimitMax to a value greater than StepLimitMin.<Br>
+			<Br>
+			Valid range: -100000000000000 - 100000000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrSensorMode.html"> SensorMode </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> sensor mode<Br>
+			    0: sensor disabled<Br>
+			    1: sensor continuously supplied with power  <Br>
+			    2: sensor power supply pulsed to keep the heat generation low </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrActuatorMode.html"> ActuatorMode </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> actuator mode<Br>
+			    0: normal<Br>
+			    1: quiet  <Br>
+			    2: low vibration (needs feature permission activated and payed for) </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrAcceleration.html"> Acceleration </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Closed loop acceleration, pm s^?2 for linear positioners and n° s^?2 for rotary positioners<Br>
+			<Br>
+			Range: 0 - 100000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrFollowingErrorLimit.html"> FollowingErrorLimit </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Following error limit, pm for linear movements and n° for rotary movements. A value of 0<Br>
+			disables following error detection.<Br>
+			<Br>
+			Range: 0 - 100000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrSearchDirection.html"> SearchDirection </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> Toggling the value will reverse start direction on reference mark search.<Br>
+			<Br>
+			true: search in negative direction<Br>
+			<Br>
+			false: search in positive direction<Br>
+			<Br>
+			The search direction value does not take the sign of the conversion attribute into respect. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrSensorName.html"> SensorName </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_STRING </td>
+		<td> OPERATOR </td>
+		<td> Sensor type description, check with hardware doc (MCS2PositionerTypes.pdf) </td>
+	</tr>
+</table>
+<br><br>
+<hr>
+<br><br>
+<Table Border=2 Cellpadding=3 CELLSPACING=0>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+	<td colspan=8> <font size=+1> <center><b> SmarActMCS2Motor Class Dynamic Attributes </b></font></center></td>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+		<td> <center><b> Name </b></center> </td>
+		<td> <center><b> Inherited </b></center> </td>
+		<td> <center><b> Abstract </b></center> </td>
+		<td> <center><b> Attr. type </b></center> </td>
+		<td> <center><b> R/W type </b></center> </td>
+		<td> <center><b> Data type </b></center> </td>
+		<td> <center><b> Level </b></center> </td>
+		<td> <center><b> Description </b></center> </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrPicoDouble.html"> PicoDouble </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td> For internal use only </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrPicoUShort.html"> PicoUShort </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_USHORT </td>
+		<td> OPERATOR </td>
+		<td> For internal use only </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrPicoBoolean.html"> PicoBoolean </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> For internal use only </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrCWLimit.html"> CWLimit </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> Clockwise end stop state, true = end stop hit;attribute will only be present if stage with end stop is connected. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrCCWLimit.html"> CCWLimit </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ </td>
+		<td> Tango::DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> Counter clockwise end stop state, true = end stop hit;attribute will only be present if stage with end stop is connected. </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrDevLongDynamicAttribute.html"> DevLongDynamicAttribute </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td>  </td>
+	</tr>
+	<tr>
+		<td> <a href="AttrDevDoubleDynamicAttribute.html"> DevDoubleDynamicAttribute </a> </td>
+		<td> false </td>
+		<td> false </td>
+		<td> Scalar </td>
+		<td> READ_WRITE </td>
+		<td> Tango::DEV_DOUBLE </td>
+		<td> OPERATOR </td>
+		<td>  </td>
+	</tr>
+</table>
+</body>
+</html>

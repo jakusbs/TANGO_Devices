@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="ASCII"?>
+<pogoDsl:PogoSystem xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:pogoDsl="http://www.esrf.fr/tango/pogo/PogoDsl">
+  <classes name="AdsBridge" pogoRevision="8.4">
+    <description description="This device class implements a simple access point to access PLC variables&#xA;of a Beckhoff PLC through ADS." title="Ads Bridge" sourcePath="/home/intermag/TangoServers/AdsBridge" language="Cpp" filestogenerate="XMI   file,Code files" hasMandatoryProperty="false" hasConcreteProperty="true" hasAbstractCommand="false" hasAbstractAttribute="false">
+      <inheritances classname="Device_Impl" sourcePath=""/>
+      <identification contact="at solid.phys.ethz.ch - acremann" author="acremann" emailDomain="solid.phys.ethz.ch" classFamily="Communication" siteSpecific="" platform="Unix Like" bus="TCP/UDP" manufacturer="none" reference=""/>
+    </description>
+    <deviceProperties name="LocalAmsAddress" description="Local AMS address as string, dot separated.&#xA;In general this is the local IP number plus .1.1&#xA;Notice that this address needs to be told to the Beckhoff&#xA;controller through TwinCAT as a ADS route!">
+      <type xsi:type="pogoDsl:StringType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </deviceProperties>
+    <deviceProperties name="PlcAmsAddress" description="AMS address of the PLC. It MUST be the IP number plus .1.1">
+      <type xsi:type="pogoDsl:StringType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </deviceProperties>
+    <deviceProperties name="PlcPort" description="Port number of the PLC (typically 801)">
+      <type xsi:type="pogoDsl:ShortType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+      <DefaultPropValue>801</DefaultPropValue>
+    </deviceProperties>
+    <commands name="State" description="This command gets the device state (stored in its device_state data member) and returns it to the caller." execMethod="dev_state" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="none">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argin>
+      <argout description="Device state">
+        <type xsi:type="pogoDsl:StateType"/>
+      </argout>
+      <status abstract="true" inherited="true" concrete="true"/>
+    </commands>
+    <commands name="Status" description="This command gets the device status (stored in its device_status data member) and returns it to the caller." execMethod="dev_status" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="none">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argin>
+      <argout description="Device status">
+        <type xsi:type="pogoDsl:ConstStringType"/>
+      </argout>
+      <status abstract="true" inherited="true" concrete="true"/>
+    </commands>
+    <commands name="ReadReal" description="Read a floating point value by variable name" execMethod="read_real" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="value of variable">
+        <type xsi:type="pogoDsl:DoubleType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteReal" description="Read a floating point value by variable name" execMethod="write_real" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name as string, including setpoint separated by =">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadBool" description="Read a bool value to the PLC (identified by name)." execMethod="read_bool" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="The variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:BooleanType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteBool" description="Write a bool value to the PLC (identified by name)." execMethod="write_bool" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="The variable name + `=` + new value (either true or false)">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadInt" description="Read an int value by variable name" execMethod="read_int" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="value of variable">
+        <type xsi:type="pogoDsl:IntType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="WriteInt" description="Read a int value by variable name" execMethod="write_int" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name as string, including setpoint separated by =">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="">
+        <type xsi:type="pogoDsl:VoidType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadRealArray" description="Read a floating point array by variable name" execMethod="read_real_array" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name, number of elements">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="array values">
+        <type xsi:type="pogoDsl:DoubleArrayType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <commands name="ReadLongIntArray" description="Read array of 32 bit int by variable name" execMethod="read_long_int_array" displayLevel="OPERATOR" polledPeriod="0">
+      <argin description="Variable name, number of elements">
+        <type xsi:type="pogoDsl:StringType"/>
+      </argin>
+      <argout description="array values">
+        <type xsi:type="pogoDsl:IntArrayType"/>
+      </argout>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+    </commands>
+    <preferences docHome="./doc_html" makefileHome="/usr/local/share/pogo/preferences"/>
+  </classes>
+</pogoDsl:PogoSystem>

@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html>
+<head>
+<title> SmarActMCS2Motor Tango Class Description </title>
+</head>
+<body text="Black" bgcolor="White" link="Blue" vlink="Purple" alink="Red">
+<ul>
+	<br><br><br>
+	<table border="0" width="100%">
+		<Tr>
+			<td> <font size="+1"><u><b> SmarActMCS2Motor Class Identification : </b></u></font> </td>
+			<td> <font size="+1"><u><b> SmarActMCS2Motor Class Inheritance : </b></u></font> </td>
+		</tr>
+		<td><ul>
+			<table border="0">
+				<Tr>
+					<td> Contact </td><td> : at desy.de - johannes.blume</td>
+				</tr>
+				<tr>
+					<td> Class Family </td><td> : Motion
+				</tr>
+				<tr>
+					<td> Platform </td><td> : Unix Like </td>
+				</tr>
+				<tr>
+					<td> Bus </td><td> : Not Applicable </td>
+				</tr>
+				<tr>
+					<td> Manufacturer </td><td> : Smaract </td>
+				</tr>
+				<tr>
+					<td> Manufacturer ref.</td><td> : http://www.smaract.de/index.php/products/controlsystems/mcs2 </td>
+				</tr>
+			</Table>
+		</ul></td>
+		<td>
+			<ul><li> <a href="http://www.esrf.eu/computing/cs/tango/tango_doc/kernel_doc/cpp_doc/" target="new"> Tango::DeviceImpl</a></li>
+			<ul> <li> SmarActMCS2Motor</li>
+			<br>
+			<br>
+			<br>
+			<br>
+			<br>
+		</td>
+	</Table>
+	<br><br><br>
+	<font size="+1"><u><b> SmarActMCS2Motor Class Description : </b></u></font>
+	<br><br>
+	<ul>
+		Motor class for smaract mcs controller.<Br>
+		<Br>
+		The server supports using a Picoscale interferometer as encoder.<Br>
+		If you don`t want or need this call `make PICOSCALESUPPORT=no`.<Br>
+		<Br>
+		If your controller has an IO module added, you will see some additional<Br>
+		attributes on the motor devices<Br>
+		<Br>
+		OutputTriggerMode: <Br>
+		This attribute specifies the output trigger mode of a motor channel.<Br>
+		Valid values are:<Br>
+		0: constant mode (output trigger does not change)<Br>
+		1: position compare (output trigger will change when the position<Br>
+		   changes by a defines increment, cf. attribute PositionCompareIncrement)<Br>
+		2: target reached (output trigger will change when the motor has reached it`s target position)<Br>
+		3: active move (utput trigger will change when the motor starts/stops)<Br>
+		<Br>
+		PositionCompareDirection:<Br>
+		This attribute specifies the position compare direction when having set OutputTriggerMode to 2.<Br>
+		Valid values are:<Br>
+		0: forward direction, the trigger pulse is output when the position value passes the threshold from below.<Br>
+		1: backward direction, the trigger pulse is output when the position value passes the threshold from above.<Br>
+		2: either direction, the trigger pulse is output when the position value passes the threshold from below or above.<Br>
+		<Br>
+		OutputTriggerPolarity:<Br>
+		This attribute specifies the output trigger polarity.<Br>
+		Valid values are:<Br>
+		0: active low (the idle levelis high and a low pulse is generated when the trigger occurs)<Br>
+		1: active high (he idle levelis low and a high pulse is generated when the trigger occurs)<Br>
+		<Br>
+		OutputTriggerPulseWidth:<Br>
+		This attribute specifies the output trigger pulse width.<Br>
+		Valid range is:<Br>
+		<Br>
+		100 ns ... 4 × 10^9 ns<Br>
+		<Br>
+		PositionCompareStartThreshold:<Br>
+		This attribute specifies the position compare start threshold when having set OutputTriggerMode to 2.<Br>
+		As soon as the position passes this threshold in the configured direction (cf. attribute PositionCompareDirection)<Br>
+		an output pulse is generated. Additionally the threshold is incremented by<Br>
+		the value of the atribute PositionCompareIncrement to define the next trigger threshold.<Br>
+		<Br>
+		PositionCompareIncrement:<Br>
+		This attribute specifies the position compare output trigger increment.<Br>
+		Valid range is 1 ... 1 × 10^12 pm or n° (watch out, attribute conversion is taken into account)<Br>
+		<Br>
+		PositionCompareLimitMin:<Br>
+		This attribute specifies the lower limit for the position compare output trigger. The limits<Br>
+		act as an additional gate for the generation of output pulses. Output pulses are only generated<Br>
+		when the current position lies between the configured minimum and maximum limits. Note that<Br>
+		the maximum limit must be configured to a higher value than the minimum limit for the limit<Br>
+		checks to be active. If both limits are set to the same value the checks are disabled and output<Br>
+		pulses are generated according to the configured start threshold, increment and direction.<Br>
+		<Br>
+		PositionCompareLimitMax:<Br>
+		This attribute specifies the upper limit for the position compare output trigger in pm or n°. The<Br>
+		limits act as an additional gate for the generation of output pulses. Output pulses are only gener-<Br>
+		ated when the current position lies between the configured minimum and maximum limits. Note<Br>
+		that the maximum limit must be configured to a higher value than the minimum limit for the limit<Br>
+		checks to be active. If both limits are set to the same value the checks are disabled and output<Br>
+		pulses are generated according to the configured start threshold, increment and direction.<Br>
+		<Br>
+		<Br>
+		For more detailed information on the use of trajectory streaming and the IO modules check the smaract documentation.
+		
+		<!---  /*PROTECTED REGION ID(index.html) ENABLED START*/  --->
+			<!--- Add your own documentation, pictures, links,.... --->
+			
+		<!---  /*PROTECTED REGION END*/  --->
+		
+	</ul>
+</ul>
+</body>
+</html>

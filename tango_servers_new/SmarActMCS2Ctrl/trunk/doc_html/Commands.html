@@ -1,0 +1,419 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html>
+<head>
+<title> SmarActMCS2Ctrl Tango Class Commands </title>
+</head>
+<body text="Black" bgcolor="White" link="Blue" vlink="Purple" alink="Red">
+<br><br><br><br>
+<Table Border=2 Cellpadding=3 CELLSPACING=0>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+	<td colspan=5> <font size=+1> <center><b> SmarActMCS2Ctrl Class Commands </b></font></center></td>
+	<tr bgcolor="#CCCCFF" class="TableHeadingColor">
+		<td> <center><b> Name </b></center> </td>
+		<td> <center><b> Input type </b></center> </td>
+		<td> <center><b> Output type </b></center> </td>
+		<td> <center><b> Level </b></center> </td>
+		<td> <center><b> Description </b></center> </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdState.html"> State </a> </td>
+		<td> DEV_VOID </td>
+		<td> DEV_STATE </td>
+		<td> OPERATOR </td>
+		<td> This command gets the device state (stored in its device_state data member) and returns it to the caller. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdStatus.html"> Status </a> </td>
+		<td> DEV_VOID </td>
+		<td> CONST_DEV_STRING </td>
+		<td> OPERATOR </td>
+		<td> This command gets the device status (stored in its device_status data member) and returns it to the caller. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdAxisState.html"> AxisState </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_USHORT </td>
+		<td> OPERATOR </td>
+		<td> Returns 16-bit value describing channel state:<Br>
+			<Br>
+			0 SA_CTL_CH_STATE_BIT_ACTIVELY_MOVING 0x0001<Br>
+			1 SA_CTL_CH_STATE_BIT_CLOSED_LOOP_ACTIVE 0x0002<Br>
+			2 SA_CTL_CH_STATE_BIT_CALIBRATING 0x0004<Br>
+			3 SA_CTL_CH_STATE_BIT_REFERENCING 0x0008<Br>
+			4 SA_CTL_CH_STATE_BIT_MOVE_DELAYED 0x0010<Br>
+			5 SA_CTL_CH_STATE_BIT_SENSOR_PRESENT 0x0020<Br>
+			6 SA_CTL_CH_STATE_BIT_IS_CALIBRATED 0x0040<Br>
+			7 SA_CTL_CH_STATE_BIT_IS_REFERENCED 0x0080<Br>
+			8 SA_CTL_CH_STATE_BIT_END_STOP_REACHED 0x0100<Br>
+			9 SA_CTL_CH_STATE_BIT_RANGE_LIMIT_REACHED 0x0200<Br>
+			10 SA_CTL_CH_STATE_BIT_FOLLOWING_LIMIT_REACHED 0x0400<Br>
+			11 SA_CTL_CH_STATE_BIT_MOVEMENT_FAILED 0x0800<Br>
+			12 SA_CTL_CH_STATE_BIT_IS_STREAMING 0x1000<Br>
+			14 SA_CTL_CH_STATE_BIT_OVER_TEMPERATURE 0x4000<Br>
+			15 SA_CTL_CH_STATE_BIT_REFERENCE_MARK 0x8000 </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetPosition.html"> GetPosition </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> returns current position in encoder steps </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetMoveMode.html"> SetMoveMode </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> set move mode<Br>
+			<Br>
+			0 : closed loop absolute<Br>
+			1 : closed loop relative<Br>
+			2 : scan mode absolute<Br>
+			3 : scan mode relative<Br>
+			4 : step mode </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetMoveMode.html"> GetMoveMode </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> get move mode<Br>
+			<Br>
+			0 : closed loop absolute<Br>
+			1 : closed loop relative<Br>
+			2 : scan mode absolute<Br>
+			3 : scan mode relative<Br>
+			4 : step mode </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetStepAmplitude.html"> GetStepAmplitude </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets step amplitude for open-loop movements.<Br>
+			Value range: 1 - 65535<Br>
+			65535 corresponds to 100V </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetStepAmplitude.html"> SetStepAmplitude </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets step amplitude for open-loop movements.<Br>
+			Value range: 1 - 65535<Br>
+			65535 corresponds to 100V </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetStepFrequency.html"> GetStepFrequency </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets step frequency for open-loop movements.<Br>
+			<Br>
+			Value range: 1 - 20000 Hz </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetStepFrequency.html"> SetStepFrequency </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets step frequency for open-loop movements.<Br>
+			Value range: 1 - 20000 Hz </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetPosition.html"> SetPosition </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> moves axis<Br>
+			<Br>
+			the effect of writing a position value depends on the set move mode </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetAutoZero.html"> SetAutoZero </a> </td>
+		<td> DEVVAR_ULONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> sets auto zero property </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetAutoZero.html"> GetAutoZero </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> gets auto zero property </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetVelocity.html"> GetVelocity </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Gets closed loop velocity. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetVelocity.html"> SetVelocity </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets closed loop velocity<Br>
+			Value range: 0 - 100000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetHoldTime.html"> GetHoldTime </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Gets hold time for closed -loop movements. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetHoldTime.html"> SetHoldTime </a> </td>
+		<td> DEVVAR_ULONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets hold time (time in ms the position is actively held after reaching the<Br>
+			target posi-tion) for closed-loop movements.<Br>
+			Value range: 0 - 4294967295 (0 disables holding,<Br>
+			max value is for infinite, i.e. hold until motor is stopped) </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetPositionKnown.html"> GetPositionKnown </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> Finds out whether the physical position of this axis is known.<Br>
+			If false and the motor has an encoder with reference mark,<Br>
+			run command `Home`. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetAxisType.html"> GetAxisType </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetMaxFrequency.html"> GetMaxFrequency </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets maximumfrequency for closed-loop movements. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetMaxFrequency.html"> SetMaxFrequency </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets maximum frequency for closed-loop movements.<Br>
+			Value range: 50 - 20000 Hz </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetSensorType.html"> GetSensorType </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Get sensor type number, check with hardware doc </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetMaxStepLimit.html"> GetMaxStepLimit </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetMinStepLimit.html"> GetMinStepLimit </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetMaxStepLimit.html"> SetMaxStepLimit </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetMinStepLimit.html"> SetMinStepLimit </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdCalibrate.html"> Calibrate </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Perform calibration for channnel <axis number>. Should only be necessary<Br>
+			if setup was changed (e.g. new / different positioner connected).<Br>
+			Requires encoded positioner, encoder has to be enabled. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetCalibrationOptions.html"> SetCalibrationOptions </a> </td>
+		<td> DEVVAR_ULONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Set calibration option (used with Calibrate command)<Br>
+			<Br>
+			bit 0: Direction<Br>
+			bit 1: Detect Distance Code Inversion<Br>
+			bit 2: Advanced Sensor Correction<Br>
+			bit 8: Limited Travel Range<Br>
+			<Br>
+			all other bits are reserved </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetCalibrationOptions.html"> GetCalibrationOptions </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Get calibration option (used with Calibrate command)<Br>
+			<Br>
+			bit 0: Direction<Br>
+			bit 1: Detect Distance Code Inversion<Br>
+			bit 2: Advanced Sensor Correction<Br>
+			bit 8: Limited Travel Range<Br>
+			<Br>
+			all other bits are reserved </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdHoldPosition.html"> HoldPosition </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Enables holding the current position by setting the move mode to<Br>
+			closed loop relative movement and then driving by 0 encoder steps.<Br>
+			(c.f. programmer manual, 2.6.4) </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdStop.html"> Stop </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Stop movement on axis <axis number> </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetSensorMode.html"> SetSensorMode </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetSensorMode.html"> GetSensorMode </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetAcceleration.html"> GetAcceleration </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Gets closed loop acceleration </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetAcceleration.html"> SetAcceleration </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets closed loop acceleration </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetActuatorMode.html"> GetActuatorMode </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG </td>
+		<td> OPERATOR </td>
+		<td> Gets currently set actuator mode </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetActuatorMode.html"> SetActuatorMode </a> </td>
+		<td> DEVVAR_LONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdHome.html"> Home </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> None. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetFollowingErrorLimit.html"> GetFollowingErrorLimit </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_LONG64 </td>
+		<td> OPERATOR </td>
+		<td> Gets currently set following error limit </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetFollowingErrorLimit.html"> SetFollowingErrorLimit </a> </td>
+		<td> DEVVAR_LONG64ARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Sets following error limit<Br>
+			Value range: 0 - 100000000000000 </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdStartStreaming.html"> StartStreaming </a> </td>
+		<td> DEV_VOID </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Start trajectory streaming.<Br>
+			<Br>
+			Make sure attribute TrajectoryData has been written before calling this. </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetSearchDirection.html"> SetSearchDirection </a> </td>
+		<td> DEVVAR_ULONGARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> sets search direction property </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetSearchDirection.html"> GetSearchDirection </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_BOOLEAN </td>
+		<td> OPERATOR </td>
+		<td> gets search direction property </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetSensorName.html"> GetSensorName </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_STRING </td>
+		<td> OPERATOR </td>
+		<td> Get description of sensor type number, check with hardware doc </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdGetSensorReferenceType.html"> GetSensorReferenceType </a> </td>
+		<td> DEV_ULONG </td>
+		<td> DEV_ULONG </td>
+		<td> OPERATOR </td>
+		<td> Get sensor reference mark type:<Br>
+			<Br>
+			no reference mark: 0<Br>
+			end stop:                1<Br>
+			single mark:            2<Br>
+			distance coded:      3 </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdSetConversion.html"> SetConversion </a> </td>
+		<td> DEVVAR_DOUBLEARRAY </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Internal use only </td>
+	</tr>
+	<tr>
+		<td> <a href="CmdAbortStreaming.html"> AbortStreaming </a> </td>
+		<td> DEV_VOID </td>
+		<td> DEV_VOID </td>
+		<td> OPERATOR </td>
+		<td> Immediately abort trajectory streaming. </td>
+	</tr>
+</table>
+</body>
+</html>

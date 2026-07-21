@@ -1,0 +1,71 @@
+# File:             ThreadSOT.py
+# description:      MOKE measurement routine that varies an external field..
+# author:           C. Murer, C. Stamm
+# copyright:        ETH Zurich, Switzerland, D-MATL INTERMAG
+
+
+import time
+import threading
+import PyTango
+import math
+             
+             
+class ThreadSOT(threading.Thread):
+    lock = threading.Lock()
+    def __init__(self,parent):
+        # Define some variables if necessary
+        self.p = parent
+        threading.Thread.__init__(self)
+        
+    def run(self):
+        print "Entering Thread"
+        self.p.set_state(PyTango.DevState.RUNNING)
+        
+        # set the magnetic field to the given Value Hexternal
+        self.p.field.write_attribute(self.p.FieldName,self.p.Hexternal)
+        # use the boxcar to measure the signal
+        self.p.boxcar.write_attribute(self.p.TimeControl, self.p.IntegrationTime)
+        time.sleep(self.p.SettleTime)
+        self.p.field_longitudinal = self.p.field.read_attribute(self.p.Hall).value
+        self.p.boxcar.Start()
+
+        while self.p.boxcar.state() == PyTango.DevState.RUNNING:
+            time.sleep(self.p.SleepTime)
+        
+        # set the field to zero again and wait the SettleTime
+        self.p.field.write_attribute(self.p.FieldName, 0.0)
+        time.sleep(self.p.SettleTime)
+        
+        # read boxcar signal
+        self.p.Value1 = self.p.boxcar.read_attribute(self.p.BoxcarChannel1).value
+        self.p.Value2 = self.p.boxcar.read_attribute(self.p.BoxcarChannel2).value
+        self.p.ValueDiff1 = self.p.Value1- self.p.Value2 # self.p.boxcar.read_attribute(self.p.BoxcarChannelDiff).value
+
+        # set magnetic field to the negative Value of Hexternal
+        self.p.field.write_attribute(self.p.FieldName,-self.p.Hexternal)
+        time.sleep(self.p.SettleTime)
+        
+        # start measurement again
+        self.p.neg_field_longitudinal = self.p.field.read_attribute(self.p.Hall).value
+        self.p.boxcar.Start()
+        
+        while self.p.boxcar.state() == PyTango.DevState.RUNNING:
+            time.sleep(self.p.SleepTime)
+            
+        # read boxcar signal
+        self.p.Value3 = self.p.boxcar.read_attribute(self.p.BoxcarChannel1).value
+        self.p.Value4 = self.p.boxcar.read_attribute(self.p.BoxcarChannel2).value
+        self.p.ValueDiff2 = self.p.Value3 -  self.p.Value4 # self.p.boxcar.read_attribute(self.p.BoxcarChannelDiff).value
+        
+        
+        # Do the calculations:
+        self.p.ValueSum = (self.p.Value1- self.p.Value2) + ( self.p.Value3 -  self.p.Value4)
+        self.p.ValueDiff = (self.p.Value1- self.p.Value2) - ( self.p.Value3 -  self.p.Value4)
+        
+        # set the tango state back to ON and magnet on zero
+        self.p.field.write_attribute(self.p.FieldName, 0.0)
+        self.p.set_state(PyTango.DevState.ON)
+        
+    def stop(self):
+        self.p.set_state(PyTango.DevState.ON)
+        

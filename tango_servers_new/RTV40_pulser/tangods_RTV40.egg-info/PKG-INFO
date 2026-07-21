@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: tangods-RTV40
+Version: 1.0.0
+Summary: Kentech RTV40/RTV30 pulse generator Tango device server
+Requires-Dist: pytango
+Requires-Dist: pyserial
+Dynamic: requires-dist
+Dynamic: summary

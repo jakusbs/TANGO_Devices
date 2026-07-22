@@ -432,3 +432,47 @@ the PLC `HystSource` change + new PyHysteresis work.
 
 ### Housekeeping
 - Removed 17 tracked `__pycache__/*.pyc`; added `.gitignore` (bytecode, build/, egg-info).
+
+---
+
+## Recent Changes (July 2026) — SmarActMCS2Stage Home with Auto-Zero
+
+Branch `claude/device-plot-legend-colors-yifm6d`. Context: after manual use of
+the MCS2 hand controller, the IR motor devices report FAULT with
+"movement finished, channel: N (invalid parameter)" and only a server restart
+or per-axis `Init` recovers them (SAMBA's Calibration-tab "⟲ Reinitialise" /
+the stage `Initialise` command). Findings + new recovery step:
+
+### Why the error sticks (analysis, no code change)
+- The Ctrl's event thread latches the **last** SA_CTL event per axis
+  (`updateEventState` → `AxisEvent_<n>`); the Motor's `dev_state()` re-reads
+  that latch on every State call (`getEventState`) and maps
+  `MOVEMENT_FINISHED` with a non-NONE/ABORTED result to FAULT with
+  `SA_CTL_GetEventInfo`'s text — which is exactly the reported message. The
+  latch only clears when a *new* axis event (a successful move / reference)
+  overwrites it.
+- Motor `Init` recovers because `init_device` re-sends the sensor
+  configuration (`SetSensorType`) and rebuilds the Ctrl connection.
+
+### AutoZero already existed end-to-end
+The full chain was already implemented: Motor R/W attribute `AutoZero` →
+Ctrl `SetAutoZero`/`GetAutoZero` → `SA_CTL_PKEY_REFERENCING_OPTIONS` /
+`SA_CTL_REF_OPT_BIT_AUTO_ZERO`; Motor `Home` (`SA_CTL_Reference`) honors it.
+It was just unreachable from the stage device / SAMBA.
+
+### New: stage-level `Home` command (`SmarActMCS2Stage.py`) — **needs redeploy**
+For each axis (X, Y, Z, sequentially): write `AutoZero = True` on the motor,
+run its `Home`, then wait (bounded by `MovementTimeout`) until the axis is no
+longer MOVING and `PositionKnown` is True. The wait tolerates transient FAULT
+states — the stale latched event is only cleared by the referencing's own
+events. All axes attempted; errors collected and raised together; stage holds
+MOVING during the run and ends ON ("positions read 0 at the reference marks")
+or FAULT. MCS2/IR only — the Green setup's old C++ `Smaract` server is
+untouched.
+
+### SAMBA pairing
+`core/calibration.py` gains a "⌂ Home" button next to "⟲ Reinitialise",
+shown **only** when the stage device exposes both `Home` and `Initialise`
+(the SmarActMCS2Stage signature, probed in a background thread) — Green and
+Cryo never see it. Confirmation dialog (the stage moves!), 120 s client
+timeout, background execution, positions re-read afterwards.

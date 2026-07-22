@@ -522,3 +522,24 @@ hardware mode).
 - Verified via the stubbed-pytango harness (11 checks: MoveMode=0 forced on
   each axis after Init; best-effort on a mode-set failure; no MoveMode write on
   a failed-Init axis; stage FAULT+raise only on real Init failure).
+
+### Follow-up — button changed to zero-in-place (`SetZero`, no movement)
+User decision: the referencing `Home` physically drives each axis to its
+reference mark (it's a real `SA_CTL_Reference` routine — the stage travels and
+"zero" ends up at the mark, not where you are). They want the button to instead
+**define the current position as 0 without moving**.
+- **New stage command `SetZero`** (`SmarActMCS2Stage.py`): for each axis, reach
+  the shared Ctrl's `SetOffset(channel, 0)` — which sets
+  `SA_CTL_PKEY_LOGICAL_SCALE_OFFSET` so the current reading becomes 0, preserves
+  the move mode, and does **not** travel (its closed-loop-holding branch only
+  does a relative-0 re-peg). The motors don't expose `SetOffset`, so the stage
+  discovers the Ctrl name + each axis' channel from the motor's own
+  `SmarActMCS2CtrlDevice` / `AxisNumber` properties. All axes attempted; errors
+  collected and raised together.
+- The referencing `Home` command is **kept** on the server (still valid in Jive
+  for a true reference), but SAMBA's button now calls `SetZero`.
+- **Safe because** the IR axes keep their `IS_REFERENCED`/PositionKnown status
+  across hand-controller use (per-axis `Init` recovered them, which only works
+  when position is known), so a zero-in-place doesn't hit "Axis not homed".
+- Verified via stubbed-pytango (`SetOffset(axis,0)` once per axis, no motion;
+  per-axis failure → FAULT + raise naming the axis).

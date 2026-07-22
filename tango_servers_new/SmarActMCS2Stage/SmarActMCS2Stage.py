@@ -413,6 +413,62 @@ class SmarActMCS2Stage(Device):
             "All axes homed (auto-zero) — positions read 0 at the reference marks.")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Home
 
+    @command(
+    )
+    @DebugIt()
+    def SetZero(self):
+        # PROTECTED REGION ID(SmarActMCS2Stage.SetZero) ENABLED START #
+        """
+        Define the CURRENT position of all three axes as 0 — **no movement**.
+
+        Unlike ``Home`` (which runs a referencing routine: the axis physically
+        drives to its hardware reference mark and zeros there), this just
+        re-labels the current position as the origin, in place.  It uses the
+        controller's ``SetOffset`` command (``SA_CTL_PKEY_LOGICAL_SCALE_OFFSET``
+        adjusted so the current reading becomes 0); the SmarAct routine
+        preserves the move mode and does not travel.
+
+        The motor devices do not expose ``SetOffset``, so this reaches the
+        shared Ctrl directly, discovering its device name and each axis'
+        channel number from the motor's own ``SmarActMCS2CtrlDevice`` /
+        ``AxisNumber`` properties.  All axes are attempted; errors are
+        collected and raised together.
+
+        :rtype: PyTango.DevVoid
+        """
+        errors = []
+        for name, dev in [("X", self.XMotorDevice),
+                          ("Y", self.YMotorDevice),
+                          ("Z", self.ZMotorDevice)]:
+            try:
+                mp = tango.DeviceProxy(dev)
+                props = mp.get_property(["SmarActMCS2CtrlDevice", "AxisNumber"])
+                ctrl_name = props["SmarActMCS2CtrlDevice"][0]
+                axis = int(props["AxisNumber"][0])
+                ctrl = tango.DeviceProxy(ctrl_name)
+                # SetOffset(channel, target): make the current reading = target.
+                ctrl.command_inout("SetOffset", [axis, 0])
+            except Exception as e:
+                errors.append(f"{name} ({dev}): {e}")
+                self.warn_stream(f"Failed to zero {name} axis: {e}")
+        # Refresh cached positions from the re-zeroed motors.
+        try:
+            self._x = self._x_proxy.Position if self._x_proxy else 0.0
+            self._y = self._y_proxy.Position if self._y_proxy else 0.0
+            self._z = self._z_proxy.Position if self._z_proxy else 0.0
+        except Exception:
+            pass
+        if errors:
+            self.set_state(DevState.FAULT)
+            self.set_status("SetZero errors: " + "; ".join(errors))
+            tango.Except.throw_exception(
+                "SetZero failed",
+                "; ".join(errors),
+                "SmarActMCS2Stage::SetZero")
+        self.set_state(DevState.ON)
+        self.set_status("Current position defined as 0 on all axes (no movement).")
+        # PROTECTED REGION END #    //  SmarActMCS2Stage.SetZero
+
 # ----------
 # Run server
 # ----------

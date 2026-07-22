@@ -496,3 +496,29 @@ timeout is longer.
   30 s timeout set before each Init, all axes attempted on a per-axis failure,
   DevFailed raised naming the failed axis, un-referenced axis reported without
   faulting the stage).
+
+### Fix-up 2 — hand controller leaves a stale move mode → "invalid parameter"
+User insight (confirmed in the C++ source): after hand-controller use, a µm
+position move through the stage fails with "movement finished, channel: N
+(invalid parameter)". **Cause:** `SmarActMCS2Motor::write_Position` branches
+entirely on a **cached** `MoveMode` (`attr_MoveMode_read`) to compute the value
+handed to `SetPosition`/`SA_CTL_Move`. `read_MoveMode` syncs that cache from the
+hardware and `write_MoveMode` sets both — but the motor's `Init` resets only
+the **cache** (to `0` = CL_ABSOLUTE) and never pushes the move mode to the
+controller. So the hand controller can change the **hardware** move mode
+(`SA_CTL_PKEY_MOVE_MODE`) while the cache says CL_ABSOLUTE; the µm write is then
+computed for CL_ABSOLUTE but executed by `SA_CTL_Move` in the stale hardware
+mode → invalid parameter. Plain `Init` cannot fix it (it doesn't touch the
+hardware mode).
+- **Fix (stage server, no C++ rebuild):** `Initialise` now writes
+  `MoveMode = 0` (CL_ABSOLUTE) on each motor after its `Init` — this pushes
+  `SetMoveMode` to the hardware **and** syncs the cache, so they can no longer
+  diverge. Best-effort (Init already succeeded → a MoveMode-set failure is
+  warned, not fatal); an axis whose Init failed gets no MoveMode write.
+- The hot path (per-point x/y/z Position writes) is deliberately left alone —
+  forcing the mode there would add a round-trip per scan point. Recovery lives
+  in `Initialise` (the "⟲ Reinitialise" button), the command run after
+  hand-controller use.
+- Verified via the stubbed-pytango harness (11 checks: MoveMode=0 forced on
+  each axis after Init; best-effort on a mode-set failure; no MoveMode write on
+  a failed-Init axis; stage FAULT+raise only on real Init failure).

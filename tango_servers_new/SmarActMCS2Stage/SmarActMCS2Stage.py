@@ -258,6 +258,16 @@ class SmarActMCS2Stage(Device):
         moment later — which is why doing it per-axis in Jive worked but this
         command appeared to "not work".
 
+        Each motor is also forced back to **closed-loop absolute** move mode
+        (``MoveMode = 0``).  The motor's Position write branches on a *cached*
+        move mode, and a motor's ``Init`` resets only that cache (to
+        CL_ABSOLUTE) without pushing it to the controller — so a move mode the
+        hand controller left on the **hardware** survives.  A µm Position write
+        is then computed for CL_ABSOLUTE but executed by ``SA_CTL_Move`` in the
+        stale hardware mode, which fails with "movement finished ...
+        (invalid parameter)".  Writing MoveMode here sets both the hardware
+        (``SetMoveMode``) and the cache, so they can no longer disagree.
+
         An axis whose ``Init`` completes but leaves the motor un-referenced
         (FAULT "run Home command") is reported in the status — that is a
         Home concern, not an Initialise failure, so it does not fault the
@@ -281,6 +291,14 @@ class SmarActMCS2Stage(Device):
                 errors.append(f"{name} ({dev}): {e}")
                 self.warn_stream(f"Failed to initialise {name} axis: {e}")
                 continue
+            # Force closed-loop absolute mode on the hardware so a stale move
+            # mode from the hand controller can't make µm moves fail with
+            # "invalid parameter".  Best-effort: Init already succeeded, so a
+            # MoveMode-set failure is logged but does not fault the stage.
+            try:
+                mp.write_attribute("MoveMode", 0)   # 0 = CL_ABSOLUTE
+            except Exception as e:
+                self.warn_stream(f"{name}: could not force MoveMode: {e}")
             # Report the resulting motor state: an axis that comes back
             # FAULT/"not referenced" needs Home, not another Init.
             try:

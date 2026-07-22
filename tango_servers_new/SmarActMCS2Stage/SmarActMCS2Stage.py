@@ -249,17 +249,45 @@ class SmarActMCS2Stage(Device):
         are then refreshed.  All axes are attempted even if one fails; any
         errors are collected and raised together.
 
+        The per-motor ``Init`` call is given a **long client timeout** (30 s):
+        re-running the motor's ``init_device`` reconnects the Ctrl and
+        re-subscribes its event channel, which on a wedged axis (exactly the
+        case this command exists for) can take longer than the default 3 s
+        TANGO client timeout.  Without this, the ``Init`` call raised a CORBA
+        timeout and the stage went FAULT even though the motor recovered a
+        moment later — which is why doing it per-axis in Jive worked but this
+        command appeared to "not work".
+
+        An axis whose ``Init`` completes but leaves the motor un-referenced
+        (FAULT "run Home command") is reported in the status — that is a
+        Home concern, not an Initialise failure, so it does not fault the
+        stage.  Follow with the ``Home`` command to zero at the reference marks.
+
         :rtype: PyTango.DevVoid
         """
         errors = []
+        states = []
+        self.set_state(DevState.INIT)
         for name, dev in [("X", self.XMotorDevice),
                           ("Y", self.YMotorDevice),
                           ("Z", self.ZMotorDevice)]:
+            self.set_status(f"Re-initialising {name} axis...")
             try:
-                tango.DeviceProxy(dev).command_inout("Init")
+                mp = tango.DeviceProxy(dev)
+                # Give Init room to reconnect the Ctrl + re-subscribe events.
+                mp.set_timeout_millis(30000)
+                mp.command_inout("Init")
             except Exception as e:
                 errors.append(f"{name} ({dev}): {e}")
                 self.warn_stream(f"Failed to initialise {name} axis: {e}")
+                continue
+            # Report the resulting motor state: an axis that comes back
+            # FAULT/"not referenced" needs Home, not another Init.
+            try:
+                time.sleep(0.2)
+                states.append(f"{name}:{mp.state()}")
+            except Exception:
+                states.append(f"{name}:?")
         # Refresh our own proxies so the next read/write hits the fresh motors.
         try:
             self._x_proxy = tango.DeviceProxy(self.XMotorDevice)
@@ -275,7 +303,9 @@ class SmarActMCS2Stage(Device):
                 "; ".join(errors),
                 "SmarActMCS2Stage::Initialise")
         self.set_state(DevState.ON)
-        self.set_status("All axes re-initialised.")
+        self.set_status(
+            "All axes re-initialised (" + ", ".join(states) + "). "
+            "Any axis reading FAULT/not-referenced needs the Home command.")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Initialise
 
     @command(

@@ -476,3 +476,23 @@ shown **only** when the stage device exposes both `Home` and `Initialise`
 (the SmarActMCS2Stage signature, probed in a background thread) — Green and
 Cryo never see it. Confirmation dialog (the stage moves!), 120 s client
 timeout, background execution, positions re-read afterwards.
+
+### Fix-up — `Initialise` timed out on wedged axes (needs redeploy)
+User report: the stage `Initialise` (SAMBA's "⟲ Reinitialise") did not
+recover the axes — only per-axis `Init` in Jive did. **Cause:**
+`Initialise` called `tango.DeviceProxy(dev).command_inout("Init")` at the
+**default 3 s client timeout**. Re-running the motor's `init_device`
+reconnects the Ctrl and re-subscribes its event channel, which on a wedged
+axis (the very case this exists for) can exceed 3 s → the call raised a CORBA
+timeout, the stage recorded that axis as failed and went FAULT, even though
+the motor recovered a moment later. Per-axis Init in Jive worked because its
+timeout is longer.
+- **Fix:** each motor proxy gets `set_timeout_millis(30000)` **before** the
+  `Init` call. After Init the motor's resulting `state()` is read and shown in
+  the stage status, so an axis that comes back FAULT/"not referenced" (a Home
+  concern, not an Init failure) is visible and does **not** fault the stage.
+  Only genuine Init/transport failures collect an error + raise `DevFailed`.
+- Verified by driving the real `Initialise` with a stubbed pytango (11 checks:
+  30 s timeout set before each Init, all axes attempted on a per-axis failure,
+  DevFailed raised naming the failed axis, un-referenced axis reported without
+  faulting the stage).

@@ -438,6 +438,140 @@ the PLC `HystSource` change + new PyHysteresis work.
 
 ---
 
+## Recent Changes (July 2026) — SmarActMCS2Stage Home with Auto-Zero
+
+Branch `claude/device-plot-legend-colors-yifm6d`. Context: after manual use of
+the MCS2 hand controller, the IR motor devices report FAULT with
+"movement finished, channel: N (invalid parameter)" and only a server restart
+or per-axis `Init` recovers them (SAMBA's Calibration-tab "⟲ Reinitialise" /
+the stage `Initialise` command). Findings + new recovery step:
+
+### Why the error sticks (analysis, no code change)
+- The Ctrl's event thread latches the **last** SA_CTL event per axis
+  (`updateEventState` → `AxisEvent_<n>`); the Motor's `dev_state()` re-reads
+  that latch on every State call (`getEventState`) and maps
+  `MOVEMENT_FINISHED` with a non-NONE/ABORTED result to FAULT with
+  `SA_CTL_GetEventInfo`'s text — which is exactly the reported message. The
+  latch only clears when a *new* axis event (a successful move / reference)
+  overwrites it.
+- Motor `Init` recovers because `init_device` re-sends the sensor
+  configuration (`SetSensorType`) and rebuilds the Ctrl connection.
+
+### AutoZero already existed end-to-end
+The full chain was already implemented: Motor R/W attribute `AutoZero` →
+Ctrl `SetAutoZero`/`GetAutoZero` → `SA_CTL_PKEY_REFERENCING_OPTIONS` /
+`SA_CTL_REF_OPT_BIT_AUTO_ZERO`; Motor `Home` (`SA_CTL_Reference`) honors it.
+It was just unreachable from the stage device / SAMBA.
+
+### New: stage-level `Home` command (`SmarActMCS2Stage.py`) — **needs redeploy**
+For each axis (X, Y, Z, sequentially): write `AutoZero = True` on the motor,
+run its `Home`, then wait (bounded by `MovementTimeout`) until the axis is no
+longer MOVING and `PositionKnown` is True. The wait tolerates transient FAULT
+states — the stale latched event is only cleared by the referencing's own
+events. All axes attempted; errors collected and raised together; stage holds
+MOVING during the run and ends ON ("positions read 0 at the reference marks")
+or FAULT. MCS2/IR only — the Green setup's old C++ `Smaract` server is
+untouched.
+
+### SAMBA pairing
+`core/calibration.py` gains a "⌂ Home" button next to "⟲ Reinitialise",
+shown **only** when the stage device exposes both `Home` and `Initialise`
+(the SmarActMCS2Stage signature, probed in a background thread) — Green and
+Cryo never see it. Confirmation dialog (the stage moves!), 120 s client
+timeout, background execution, positions re-read afterwards.
+
+### Fix-up — `Initialise` timed out on wedged axes (needs redeploy)
+User report: the stage `Initialise` (SAMBA's "⟲ Reinitialise") did not
+recover the axes — only per-axis `Init` in Jive did. **Cause:**
+`Initialise` called `tango.DeviceProxy(dev).command_inout("Init")` at the
+**default 3 s client timeout**. Re-running the motor's `init_device`
+reconnects the Ctrl and re-subscribes its event channel, which on a wedged
+axis (the very case this exists for) can exceed 3 s → the call raised a CORBA
+timeout, the stage recorded that axis as failed and went FAULT, even though
+the motor recovered a moment later. Per-axis Init in Jive worked because its
+timeout is longer.
+- **Fix:** each motor proxy gets `set_timeout_millis(30000)` **before** the
+  `Init` call. After Init the motor's resulting `state()` is read and shown in
+  the stage status, so an axis that comes back FAULT/"not referenced" (a Home
+  concern, not an Init failure) is visible and does **not** fault the stage.
+  Only genuine Init/transport failures collect an error + raise `DevFailed`.
+- Verified by driving the real `Initialise` with a stubbed pytango (11 checks:
+  30 s timeout set before each Init, all axes attempted on a per-axis failure,
+  DevFailed raised naming the failed axis, un-referenced axis reported without
+  faulting the stage).
+
+### Fix-up 2 — hand controller leaves a stale move mode → "invalid parameter"
+User insight (confirmed in the C++ source): after hand-controller use, a µm
+position move through the stage fails with "movement finished, channel: N
+(invalid parameter)". **Cause:** `SmarActMCS2Motor::write_Position` branches
+entirely on a **cached** `MoveMode` (`attr_MoveMode_read`) to compute the value
+handed to `SetPosition`/`SA_CTL_Move`. `read_MoveMode` syncs that cache from the
+hardware and `write_MoveMode` sets both — but the motor's `Init` resets only
+the **cache** (to `0` = CL_ABSOLUTE) and never pushes the move mode to the
+controller. So the hand controller can change the **hardware** move mode
+(`SA_CTL_PKEY_MOVE_MODE`) while the cache says CL_ABSOLUTE; the µm write is then
+computed for CL_ABSOLUTE but executed by `SA_CTL_Move` in the stale hardware
+mode → invalid parameter. Plain `Init` cannot fix it (it doesn't touch the
+hardware mode).
+- **Fix (stage server, no C++ rebuild):** `Initialise` now writes
+  `MoveMode = 0` (CL_ABSOLUTE) on each motor after its `Init` — this pushes
+  `SetMoveMode` to the hardware **and** syncs the cache, so they can no longer
+  diverge. Best-effort (Init already succeeded → a MoveMode-set failure is
+  warned, not fatal); an axis whose Init failed gets no MoveMode write.
+- The hot path (per-point x/y/z Position writes) is deliberately left alone —
+  forcing the mode there would add a round-trip per scan point. Recovery lives
+  in `Initialise` (the "⟲ Reinitialise" button), the command run after
+  hand-controller use.
+- Verified via the stubbed-pytango harness (11 checks: MoveMode=0 forced on
+  each axis after Init; best-effort on a mode-set failure; no MoveMode write on
+  a failed-Init axis; stage FAULT+raise only on real Init failure).
+
+### Follow-up — button changed to zero-in-place (`SetZero`, no movement)
+User decision: the referencing `Home` physically drives each axis to its
+reference mark (it's a real `SA_CTL_Reference` routine — the stage travels and
+"zero" ends up at the mark, not where you are). They want the button to instead
+**define the current position as 0 without moving**.
+- **New stage command `SetZero`** (`SmarActMCS2Stage.py`): for each axis, reach
+  the shared Ctrl's `SetOffset(channel, 0)` — which sets
+  `SA_CTL_PKEY_LOGICAL_SCALE_OFFSET` so the current reading becomes 0, preserves
+  the move mode, and does **not** travel (its closed-loop-holding branch only
+  does a relative-0 re-peg). The motors don't expose `SetOffset`, so the stage
+  discovers the Ctrl name + each axis' channel from the motor's own
+  `SmarActMCS2CtrlDevice` / `AxisNumber` properties. All axes attempted; errors
+  collected and raised together.
+- The referencing `Home` command is **kept** on the server (still valid in Jive
+  for a true reference), but SAMBA's button now calls `SetZero`.
+- **Safe because** the IR axes keep their `IS_REFERENCED`/PositionKnown status
+  across hand-controller use (per-axis `Init` recovered them, which only works
+  when position is known), so a zero-in-place doesn't hit "Axis not homed".
+- Verified via stubbed-pytango (`SetOffset(axis,0)` once per axis, no motion;
+  per-axis failure → FAULT + raise naming the axis).
+
+### Fix-up 3 — `install.sh` targeted the wrong machine's folder (why redeploys "did nothing")
+User discovery: the MCS2 servers run on a **different computer** whose
+Tango-server folder is **not** `/usr/local/tango_servers`. The old
+`SmarActMCS2Stage/install.sh` did `mv SmarActMCS2Stage /usr/local/tango_servers`
+(a hardcoded path), so every "redeploy" dropped the new file where the Starter
+never looked — the old binary kept running and **none** of the Initialise /
+Home / SetZero / move-mode fixes actually took effect (explaining why
+Reinitialise still appeared broken).
+- **Fix:** rewrote `install.sh` to the **pip + console_scripts** style used by
+  `install_ZI2_DAQ.sh` (the convention on that machine). It builds a small
+  package (`SmarActMCS2Stage/__init__.py` → `main`, entry point
+  `SmarActMCS2Stage = SmarActMCS2Stage:main`) in a temp `.pipbuild/` and runs
+  `pip install . --force-reinstall --no-deps --quiet`, so the executable lands
+  in the **active env's** `bin/` (on PATH) — no hardcoded folder. `--no-deps`
+  leaves the env's existing pytango untouched.
+- **Run it with the same conda/venv active that the Tango Starter uses** (the
+  one ZI2_DAQ was installed into). Delete any stale
+  `/usr/local/tango_servers/SmarActMCS2Stage` so PATH resolves to the new entry
+  point. Jive registration (Server/Class `SmarActMCS2Stage`) is unchanged.
+- Verified: stubbed-`pip` dry run builds a correct `setup.py` + package and
+  invokes `pip install . --force-reinstall --no-deps`; the built package
+  imports under stubbed pytango and the `SmarActMCS2Stage:main` entry point
+  resolves and runs.
+---
+
 ## Recent Changes (July 2026) — AdsBridge2 Auto-Reconnect & Keepalive Watchdog
 
 Branch `claude/magnet-tango-network-issues-875e80`. Background: the magnet

@@ -249,17 +249,63 @@ class SmarActMCS2Stage(Device):
         are then refreshed.  All axes are attempted even if one fails; any
         errors are collected and raised together.
 
+        The per-motor ``Init`` call is given a **long client timeout** (30 s):
+        re-running the motor's ``init_device`` reconnects the Ctrl and
+        re-subscribes its event channel, which on a wedged axis (exactly the
+        case this command exists for) can take longer than the default 3 s
+        TANGO client timeout.  Without this, the ``Init`` call raised a CORBA
+        timeout and the stage went FAULT even though the motor recovered a
+        moment later — which is why doing it per-axis in Jive worked but this
+        command appeared to "not work".
+
+        Each motor is also forced back to **closed-loop absolute** move mode
+        (``MoveMode = 0``).  The motor's Position write branches on a *cached*
+        move mode, and a motor's ``Init`` resets only that cache (to
+        CL_ABSOLUTE) without pushing it to the controller — so a move mode the
+        hand controller left on the **hardware** survives.  A µm Position write
+        is then computed for CL_ABSOLUTE but executed by ``SA_CTL_Move`` in the
+        stale hardware mode, which fails with "movement finished ...
+        (invalid parameter)".  Writing MoveMode here sets both the hardware
+        (``SetMoveMode``) and the cache, so they can no longer disagree.
+
+        An axis whose ``Init`` completes but leaves the motor un-referenced
+        (FAULT "run Home command") is reported in the status — that is a
+        Home concern, not an Initialise failure, so it does not fault the
+        stage.  Follow with the ``Home`` command to zero at the reference marks.
+
         :rtype: PyTango.DevVoid
         """
         errors = []
+        states = []
+        self.set_state(DevState.INIT)
         for name, dev in [("X", self.XMotorDevice),
                           ("Y", self.YMotorDevice),
                           ("Z", self.ZMotorDevice)]:
+            self.set_status(f"Re-initialising {name} axis...")
             try:
-                tango.DeviceProxy(dev).command_inout("Init")
+                mp = tango.DeviceProxy(dev)
+                # Give Init room to reconnect the Ctrl + re-subscribe events.
+                mp.set_timeout_millis(30000)
+                mp.command_inout("Init")
             except Exception as e:
                 errors.append(f"{name} ({dev}): {e}")
                 self.warn_stream(f"Failed to initialise {name} axis: {e}")
+                continue
+            # Force closed-loop absolute mode on the hardware so a stale move
+            # mode from the hand controller can't make µm moves fail with
+            # "invalid parameter".  Best-effort: Init already succeeded, so a
+            # MoveMode-set failure is logged but does not fault the stage.
+            try:
+                mp.write_attribute("MoveMode", 0)   # 0 = CL_ABSOLUTE
+            except Exception as e:
+                self.warn_stream(f"{name}: could not force MoveMode: {e}")
+            # Report the resulting motor state: an axis that comes back
+            # FAULT/"not referenced" needs Home, not another Init.
+            try:
+                time.sleep(0.2)
+                states.append(f"{name}:{mp.state()}")
+            except Exception:
+                states.append(f"{name}:?")
         # Refresh our own proxies so the next read/write hits the fresh motors.
         try:
             self._x_proxy = tango.DeviceProxy(self.XMotorDevice)
@@ -275,8 +321,153 @@ class SmarActMCS2Stage(Device):
                 "; ".join(errors),
                 "SmarActMCS2Stage::Initialise")
         self.set_state(DevState.ON)
-        self.set_status("All axes re-initialised.")
+        self.set_status(
+            "All axes re-initialised (" + ", ".join(states) + "). "
+            "Any axis reading FAULT/not-referenced needs the Home command.")
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Initialise
+
+    @command(
+    )
+    @DebugIt()
+    def Home(self):
+        # PROTECTED REGION ID(SmarActMCS2Stage.Home) ENABLED START #
+        """
+        Reference (home) all three axes with auto-zero.
+
+        For each axis (X, Y, Z — sequentially, so only one axis moves at a
+        time):
+
+        1. write ``AutoZero = True`` on the motor device — the position
+           counter is set to 0 when the reference mark is found
+           (``SA_CTL_PKEY_REFERENCING_OPTIONS`` /
+           ``SA_CTL_REF_OPT_BIT_AUTO_ZERO``, applied by the Ctrl's
+           ``SetAutoZero``);
+        2. run the motor's ``Home`` command (``SA_CTL_Reference``);
+        3. wait for the referencing to finish (bounded by
+           ``MovementTimeout``) and verify ``PositionKnown``.
+
+        The stage physically MOVES each axis to its reference mark; the
+        position attributes read 0 there afterwards.  This is the clean
+        recovery after manual hand-controller use: run ``Initialise`` first
+        if the axes are wedged, then ``Home`` to restore a consistent,
+        zeroed position frame.
+
+        All axes are attempted even if one fails; errors are collected and
+        raised together.  The wait loop deliberately tolerates transient
+        FAULT states — a stale latched axis event (e.g. "movement finished
+        ... invalid parameter" after hand-controller use) is only cleared
+        by the fresh events the referencing itself generates.
+
+        :rtype: PyTango.DevVoid
+        """
+        errors = []
+        self.set_state(DevState.MOVING)
+        for name, proxy in [("X", self._x_proxy), ("Y", self._y_proxy),
+                            ("Z", self._z_proxy)]:
+            if proxy is None:
+                errors.append(f"{name}: motor proxy not connected")
+                continue
+            self.set_status(f"Homing {name} axis (auto-zero)...")
+            try:
+                try:
+                    proxy.write_attribute("AutoZero", True)
+                except Exception as e:
+                    self.warn_stream(f"{name}: could not set AutoZero: {e}")
+                proxy.command_inout("Home")
+            except Exception as e:
+                errors.append(f"{name}: Home failed: {e}")
+                continue
+            time.sleep(0.5)          # let the referencing engage
+            deadline = time.time() + self.MovementTimeout
+            ok = False
+            while time.time() < deadline:
+                try:
+                    if proxy.state() == DevState.MOVING:
+                        time.sleep(0.1)
+                        continue
+                    known = bool(proxy.read_attribute("PositionKnown").value)
+                except Exception:
+                    time.sleep(0.1)
+                    continue
+                if known:
+                    ok = True
+                    break
+                time.sleep(0.1)
+            if not ok:
+                try:
+                    st = proxy.status()
+                except Exception:
+                    st = "?"
+                errors.append(
+                    f"{name}: homing did not complete within "
+                    f"{self.MovementTimeout}s ({st})")
+        if errors:
+            self.set_state(DevState.FAULT)
+            self.set_status("Home errors: " + "; ".join(errors))
+            tango.Except.throw_exception(
+                "Home failed",
+                "; ".join(errors),
+                "SmarActMCS2Stage::Home")
+        self.set_state(DevState.ON)
+        self.set_status(
+            "All axes homed (auto-zero) — positions read 0 at the reference marks.")
+        # PROTECTED REGION END #    //  SmarActMCS2Stage.Home
+
+    @command(
+    )
+    @DebugIt()
+    def SetZero(self):
+        # PROTECTED REGION ID(SmarActMCS2Stage.SetZero) ENABLED START #
+        """
+        Define the CURRENT position of all three axes as 0 — **no movement**.
+
+        Unlike ``Home`` (which runs a referencing routine: the axis physically
+        drives to its hardware reference mark and zeros there), this just
+        re-labels the current position as the origin, in place.  It uses the
+        controller's ``SetOffset`` command (``SA_CTL_PKEY_LOGICAL_SCALE_OFFSET``
+        adjusted so the current reading becomes 0); the SmarAct routine
+        preserves the move mode and does not travel.
+
+        The motor devices do not expose ``SetOffset``, so this reaches the
+        shared Ctrl directly, discovering its device name and each axis'
+        channel number from the motor's own ``SmarActMCS2CtrlDevice`` /
+        ``AxisNumber`` properties.  All axes are attempted; errors are
+        collected and raised together.
+
+        :rtype: PyTango.DevVoid
+        """
+        errors = []
+        for name, dev in [("X", self.XMotorDevice),
+                          ("Y", self.YMotorDevice),
+                          ("Z", self.ZMotorDevice)]:
+            try:
+                mp = tango.DeviceProxy(dev)
+                props = mp.get_property(["SmarActMCS2CtrlDevice", "AxisNumber"])
+                ctrl_name = props["SmarActMCS2CtrlDevice"][0]
+                axis = int(props["AxisNumber"][0])
+                ctrl = tango.DeviceProxy(ctrl_name)
+                # SetOffset(channel, target): make the current reading = target.
+                ctrl.command_inout("SetOffset", [axis, 0])
+            except Exception as e:
+                errors.append(f"{name} ({dev}): {e}")
+                self.warn_stream(f"Failed to zero {name} axis: {e}")
+        # Refresh cached positions from the re-zeroed motors.
+        try:
+            self._x = self._x_proxy.Position if self._x_proxy else 0.0
+            self._y = self._y_proxy.Position if self._y_proxy else 0.0
+            self._z = self._z_proxy.Position if self._z_proxy else 0.0
+        except Exception:
+            pass
+        if errors:
+            self.set_state(DevState.FAULT)
+            self.set_status("SetZero errors: " + "; ".join(errors))
+            tango.Except.throw_exception(
+                "SetZero failed",
+                "; ".join(errors),
+                "SmarActMCS2Stage::SetZero")
+        self.set_state(DevState.ON)
+        self.set_status("Current position defined as 0 on all axes (no movement).")
+        # PROTECTED REGION END #    //  SmarActMCS2Stage.SetZero
 
 # ----------
 # Run server

@@ -18,6 +18,16 @@
       <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
       <DefaultPropValue>801</DefaultPropValue>
     </deviceProperties>
+    <deviceProperties name="AutoReconnect" description="Rebuild the ADS connection automatically: a failed command reconnects and retries once before raising, and the keepalive watchdog repairs a dead link between commands.">
+      <type xsi:type="pogoDsl:BooleanType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+      <DefaultPropValue>true</DefaultPropValue>
+    </deviceProperties>
+    <deviceProperties name="KeepaliveInterval" description="Seconds between watchdog keepalive reads (ADS ReadState). Keeps the connection non-idle (defeats idle-session timeouts in network gear / the PLC router) and detects a dead link between commands. 0 disables the watchdog thread.">
+      <type xsi:type="pogoDsl:DoubleType"/>
+      <status abstract="false" inherited="false" concrete="true" concreteHere="true"/>
+      <DefaultPropValue>10.0</DefaultPropValue>
+    </deviceProperties>
     <commands name="State" description="This command gets the device state (stored in its device_state data member) and returns it to the caller." execMethod="dev_state" displayLevel="OPERATOR" polledPeriod="0">
       <argin description="none">
         <type xsi:type="pogoDsl:VoidType"/>

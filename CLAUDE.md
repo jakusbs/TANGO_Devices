@@ -543,3 +543,27 @@ reference mark (it's a real `SA_CTL_Reference` routine — the stage travels and
   when position is known), so a zero-in-place doesn't hit "Axis not homed".
 - Verified via stubbed-pytango (`SetOffset(axis,0)` once per axis, no motion;
   per-axis failure → FAULT + raise naming the axis).
+
+### Fix-up 3 — `install.sh` targeted the wrong machine's folder (why redeploys "did nothing")
+User discovery: the MCS2 servers run on a **different computer** whose
+Tango-server folder is **not** `/usr/local/tango_servers`. The old
+`SmarActMCS2Stage/install.sh` did `mv SmarActMCS2Stage /usr/local/tango_servers`
+(a hardcoded path), so every "redeploy" dropped the new file where the Starter
+never looked — the old binary kept running and **none** of the Initialise /
+Home / SetZero / move-mode fixes actually took effect (explaining why
+Reinitialise still appeared broken).
+- **Fix:** rewrote `install.sh` to the **pip + console_scripts** style used by
+  `install_ZI2_DAQ.sh` (the convention on that machine). It builds a small
+  package (`SmarActMCS2Stage/__init__.py` → `main`, entry point
+  `SmarActMCS2Stage = SmarActMCS2Stage:main`) in a temp `.pipbuild/` and runs
+  `pip install . --force-reinstall --no-deps --quiet`, so the executable lands
+  in the **active env's** `bin/` (on PATH) — no hardcoded folder. `--no-deps`
+  leaves the env's existing pytango untouched.
+- **Run it with the same conda/venv active that the Tango Starter uses** (the
+  one ZI2_DAQ was installed into). Delete any stale
+  `/usr/local/tango_servers/SmarActMCS2Stage` so PATH resolves to the new entry
+  point. Jive registration (Server/Class `SmarActMCS2Stage`) is unchanged.
+- Verified: stubbed-`pip` dry run builds a correct `setup.py` + package and
+  invokes `pip install . --force-reinstall --no-deps`; the built package
+  imports under stubbed pytango and the `SmarActMCS2Stage:main` entry point
+  resolves and runs.

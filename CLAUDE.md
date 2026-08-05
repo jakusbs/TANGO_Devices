@@ -68,9 +68,16 @@ The C++ socket was non-blocking (`set_non_blocking(true)`). The Python socket is
 ## Keithley 6221 — Known Issues and Fixes
 
 ### Hardware
-- **Unit 1 (PyKeithley)**: firmware D02 — has TCP drop bug, drops connection silently
-- **Unit 2 (PyKeithley2)**: firmware D04 — stable, but affected by same Socket issues
-- D04 firmware update available at: `https://www.tek.com/en/support/software/firmware/62206221-firmware-revision-d04`
+- **Both units run firmware D04** (unit 1 updated from D02 in August 2026). The two instruments
+  are now firmware-identical.
+- **The TCP drop problem is SOLVED — root cause was the D02 firmware.** After the update the
+  connection drops stopped entirely. This retroactively rules out the long-standing
+  "network switch/router is killing idle TCP sessions" theory: no change was made to the network,
+  only to the firmware. Do not re-open that line of investigation without new evidence.
+- Socket's `AutoReconnect` is kept enabled as cheap insurance, but is no longer masking a known
+  hardware fault. If drops ever reappear, treat it as a **new** problem — and check first whether
+  a unit was reflashed or swapped back to D02.
+- D04 firmware: `https://www.tek.com/en/support/software/firmware/62206221-firmware-revision-d04`
 - D04 has no USB port — firmware update must be done via RS-232 or GPIB
 - **Do NOT install E-series firmware on D-series hardware** (bricks the unit)
 
@@ -341,8 +348,6 @@ With short integration times and no Jive panel open, `Start()` occasionally retu
 
 ## What Still Needs Attention
 
-- **D02 firmware on Keithley unit 1**: The real fix is updating to D04. The AutoReconnect in Socket provides a software mitigation but the firmware drop is the root cause.
-- **Network switch/router timeout**: Both Keithleys dropping connections suggests a network device may be killing idle TCP sessions. TCP keepalives (already attempted but reverted due to other bugs) or periodic heartbeat commands would help if confirmed.
 - **ANC300 position counter**: the `px/py/pz` attributes track a relative step counter that resets to 0 on server restart. There is no absolute position feedback — the counter drifts if steps are missed due to a communication error.
 - **Magnet zero-guards**: `HallSensitivity_*` and `AmperePerVolt_*` are mandatory properties, but there is no runtime guard against a user setting them to 0 via Jive. Consider adding checks in `init_device`.
 - **DG645 dev_state()**: polls `LERR?` on every state query, which can be frequent. If the state polling overhead becomes a problem, cache the last known state and only re-query after a timeout.

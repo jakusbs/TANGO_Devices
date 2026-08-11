@@ -53,13 +53,17 @@ class ThreadZI(threading.Thread):
                         samples = data[path][comp]
                         store[i] = float(np.mean(samples)) * 1e6 * sqrt2
                     except (KeyError, TypeError, ValueError):
-                        store[i] = 0.0
+                        # NaN, not 0.0: no samples means nothing was measured,
+                        # and 0 is indistinguishable from a genuinely nulled
+                        # balanced-diode signal, so the scan engine would
+                        # record it as a valid measurement.
+                        store[i] = np.nan
                         missing.append('{}/{}'.format(i, comp))
 
             if missing:
                 self.p.warn_stream(
                     'ZI: poll returned no samples for demod(s): {} '
-                    '— values set to 0 (server was idle?)'.format(', '.join(missing)))
+                    '— values set to NaN (server was idle?)'.format(', '.join(missing)))
 
             self.p._last_collect_s = collect_time
             self.p.info_stream(

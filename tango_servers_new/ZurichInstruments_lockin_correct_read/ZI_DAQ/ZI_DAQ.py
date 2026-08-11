@@ -355,8 +355,22 @@ class ZI(Device):
             except Exception:
                 self.set_state(DevState.ON)
                 raise
+        elif self.get_state() == DevState.RUNNING:
+            # A Start arriving mid-acquisition is a client-side sequencing bug
+            # (the scan engine waits for RUNNING->ON before the next point).
+            # Warn, but do not disturb the thread that is already collecting.
+            self.warn_stream("Start ignored: an acquisition is already running.")
         else:
-            self.warn_stream("Thread is already running.")
+            # Any other state -- FAULT after a failed acquisition, UNKNOWN,
+            # ... -- means no integration will happen.  This MUST raise:
+            # returning quietly made the client believe a fresh acquisition
+            # had been requested, and it then read the CACHED values of the
+            # previous integration as if they were new data.
+            tango.Except.throw_exception(
+                "Not_ready",
+                "Cannot Start in state {} -- no acquisition performed "
+                "(use the Reconnect command).".format(self.get_state()),
+                "{}::Start".format(type(self).__name__))
 
     @command()
     def Reconnect(self):

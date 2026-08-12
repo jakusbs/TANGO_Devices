@@ -64,7 +64,14 @@ setup(
     install_requires=[
         'pytango',
         'numpy',
-        'zhinst>=24,<26',  # pin within supported LabOne major versions (24.x or 25.x)
+        # EXACT pin: the zhinst client must not be newer than the LabOne
+        # data server on the MFLI, or ziDAQServer refuses to connect.
+        # Measured 2026-08-12: Green (192.168.1.62) runs 25.04, IR
+        # (192.168.1.144) runs 24.10.  25.4.1 matches Green exactly and
+        # reaches IR via the device's AllowVersionMismatch property.
+        # A range pin let pip jump to 25.10.1, which put Green in FAULT.
+        # Re-check with: daq.getString('/zi/about/version')
+        'zhinst==25.4.1',
     ],
 )
 EOF

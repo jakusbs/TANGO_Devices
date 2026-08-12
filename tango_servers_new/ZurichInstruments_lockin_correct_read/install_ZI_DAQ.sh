@@ -66,12 +66,15 @@ setup(
         'numpy',
         # EXACT pin: the zhinst client must not be newer than the LabOne
         # data server on the MFLI, or ziDAQServer refuses to connect.
-        # Measured 2026-08-12: Green (192.168.1.62) runs 25.04, IR
-        # (192.168.1.144) runs 24.10.  25.4.1 matches Green exactly and
-        # reaches IR via the device's AllowVersionMismatch property.
-        # A range pin let pip jump to 25.10.1, which put Green in FAULT.
-        # Re-check with: daq.getString('/zi/about/version')
-        'zhinst==25.4.1',
+        # Measured 2026-08-12 with daq.getString('/zi/about/version'):
+        # both MFLIs run LabOne 24.10 (rev 241065175) -- Green 192.168.1.62
+        # and IR 192.168.1.144 -- so 24.10.1 (zhinst-core 24.10.65175) is an
+        # exact match for both and needs no AllowVersionMismatch bypass.
+        # NOTE: the 24.10 client has no allow_version_mismatch kwarg, so that
+        # property now falls through to a plain connect (harmless while the
+        # versions match).  A range pin let pip jump to 25.10.1 and put Green
+        # in FAULT; re-measure both servers before ever moving this pin.
+        'zhinst==24.10.1',
     ],
 )
 EOF

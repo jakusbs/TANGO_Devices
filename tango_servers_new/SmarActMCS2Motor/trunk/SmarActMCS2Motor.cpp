@@ -816,12 +816,12 @@ void SmarActMCS2Motor::write_Position(Tango::WAttribute &attr)
     if(*attr_MoveMode_read == SA_CTL_MOVE_MODE_CL_ABSOLUTE ||
        *attr_MoveMode_read == SA_CTL_MOVE_MODE_CL_RELATIVE)
     {
-        if(*attr_Conversion_read <= 0.0)
+        if(*attr_Conversion_read == 0.0)
         {
             Tango::Except::throw_exception(
                 "Write error",
-                "Conversion is not set (<= 0) -- refusing to move, the target "
-                "would be scaled by an unknown factor",
+                "Conversion is 0 -- refusing to move, the target would be "
+                "scaled to zero",
                 "SmarActMCS2Motor::write_Position",
                 Tango::WARN);
         }
@@ -900,13 +900,16 @@ void SmarActMCS2Motor::write_Conversion(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::write_Conversion) ENABLED START -----*/
-    // A zero or negative scale would turn every position write into nonsense
-    // (or a divide-by-zero on the next read), so refuse it outright.
-    if(w_val <= 0.0)
+    // Zero is the nonsense case: a divide-by-zero on the next read and a write
+    // that always commands 0.  A NEGATIVE conversion is legitimate and in use
+    // -- it inverts the axis direction (the IR X and Y axes are configured at
+    // -1e6, Z at +1e6) -- so only zero is refused.
+    if(w_val == 0.0)
     {
         Tango::Except::throw_exception(
             "Write error",
-            "Conversion must be > 0 (it is the picometer-per-unit scale)",
+            "Conversion must not be 0 (it is the picometer-per-unit scale; "
+            "negative inverts the axis direction)",
             "SmarActMCS2Motor::write_Conversion",
             Tango::WARN);
     }

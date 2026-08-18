@@ -2639,7 +2639,26 @@ void SmarActMCS2Ctrl::set_offset(const Tango::DevVarLong64Array *argin)
             set_move_mode(&mode_array);
         }
         move_array[1] = 0;
-        set_position(&move_array);
+        // The restore below MUST run even if the re-peg throws.  set_position
+        // raises on any SA_CTL error, and without this the axis was left in
+        // CL_RELATIVE -- where write_Position's `default` branch sends an
+        // absolute target straight to SA_CTL_Move, which executes it as a
+        // RELATIVE displacement.  "Go to 37 um" then moves +37 um from
+        // wherever the stage is, compounding on every write.
+        try
+        {
+            set_position(&move_array);
+        }
+        catch(...)
+        {
+            if(move_mode != SA_CTL_MOVE_MODE_CL_RELATIVE)
+            {
+                mode_array[1] = move_mode;
+                try { set_move_mode(&mode_array); }
+                catch(...) { /* report the original failure, not this one */ }
+            }
+            throw;
+        }
 		if(move_mode != SA_CTL_MOVE_MODE_CL_RELATIVE)
         {
         	mode_array[1] = move_mode;

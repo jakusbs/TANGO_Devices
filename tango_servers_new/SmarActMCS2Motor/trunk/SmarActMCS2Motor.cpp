@@ -305,17 +305,19 @@ void SmarActMCS2Motor::init_device()
         eventID = smarctrl->subscribe_event("EventInfo", Tango::CHANGE_EVENT, eventCallback, true);
         *attr_Conversion_read    = settingsPersisted ? persistedConversion : 1;
         *attr_AutoZero_read      = true;
-        // Read the move mode back from the controller instead of assuming
-        // CL_ABSOLUTE.  The hardware keeps whatever mode was last set --
-        // including a STEP mode left behind by the hand controller -- and a
-        // cache that disagrees with it makes write_Position compute a value
-        // for one mode which the controller then executes in another.
-        {
-            Tango::DeviceData mmin, mmout;
-            mmin << axisNumber;
-            mmout = smarctrl->command_inout("GetMoveMode", mmin);
-            mmout >> *attr_MoveMode_read;
-        }
+        // Reset the move-mode cache to closed-loop absolute, and let
+        // write_Position push it to the controller before the next move.
+        //
+        // An earlier revision of this fix read the mode back from the
+        // hardware here instead.  That is wrong now that write_Position
+        // pushes the cache: adopting the hardware's mode would carry a STEP
+        // or CL_RELATIVE state left by the hand controller (or by a
+        // set_offset whose re-peg threw) straight through the Init that is
+        // meant to recover from it.  Init is a recovery operation, so the
+        // safe default is what it should land on -- and the push then forces
+        // the controller to agree.  A deliberate open-loop mode is
+        // re-selected by writing MoveMode, one click in Jive.
+        *attr_MoveMode_read      = 0;
         // Seed the position cache from the hardware.  In the open-loop modes
         // read_Position returns this cached value and write_Position derives a
         // relative step count from it, so leaving the freshly allocated array

@@ -608,7 +608,8 @@ the ADS TCP session to the Beckhoff dies and nothing ever rebuilt it.
 ## Recent Changes (August 2026) — MCS2 Z-Axis Runaway: Server-Side Fixes
 
 Branch `claude/mcs2-z-runaway-safety`, with the SAMBA half on the same branch
-there (SAMBA §69, which has the full failure analysis). **Safety batch** — the
+there (SAMBA §69 + §70, which carry the full failure analysis — two independent
+investigations of the same incident, merged). **Safety batch** — the
 IR Z axis twice ran away far enough to crash the sample into the objective.
 `SmarActMCS2Stage.py` is Python (**redeploy**); the Motor and Ctrl changes need
 a **C++ rebuild** on the MCS2 machine.
@@ -632,12 +633,18 @@ diverged — and it stopped failing loudly once `Init` had reset `Conversion` to
   `settingsPersisted` (in-class initializers, C++11) survive the
   `delete_device`/`init_device` pair — the Init command re-runs them on the
   *same* object — and are updated by the matching `write_*` methods.
-- **`init_device` syncs the move-mode cache from the hardware**
-  (`GetMoveMode`) instead of assuming CL_ABSOLUTE, and **seeds
-  `attr_Position_read`** from `GetPosition`. That array was freshly allocated
-  and never written: in the open-loop modes `read_Position` returns the cache
-  and `write_Position` derives a step count from it, so the first open-loop
-  move used uninitialised memory as its reference.
+- **`init_device` keeps resetting the move-mode cache to CL_ABSOLUTE** and
+  **seeds `attr_Position_read`** from `GetPosition`. That array was freshly
+  allocated and never written: in the open-loop modes `read_Position` returns
+  the cache and `write_Position` derives a step count from it, so the first
+  open-loop move used uninitialised memory as its reference.
+  An intermediate revision of this batch had `init_device` *read the mode back
+  from the hardware* instead. That was reverted: now that `write_Position`
+  **pushes** the cache, adopting the hardware's mode would carry a STEP or
+  CL_RELATIVE state — left by the hand controller, or by a `set_offset` whose
+  re-peg threw — straight through the Init meant to recover from it. Init is a
+  recovery operation, so it lands on the safe default and the push makes the
+  controller agree.
 - **`write_Position` pushes the move mode to the controller before every
   move** (`SetMoveMode(axis, cached)`), making the cache/hardware divergence
   structurally impossible. Costs one extra round trip per scan point —
@@ -658,6 +665,16 @@ diverged — and it stopped failing loudly once `Init` had reset `Conversion` to
   offset is computed from a position read a moment later, so a travelling axis
   would be zeroed against a position it had already left, shifting the whole
   coordinate frame by however far it got.
+- **The move-mode restore is now exception-safe** (`try`/`catch(...)` +
+  rethrow). `set_position` raises on any SA_CTL error, and the restore line
+  after it was simply never reached — leaving the axis in **CL_RELATIVE**,
+  where `write_Position`'s `default` branch hands an absolute target to
+  `SA_CTL_Move`, which executes it as a *relative* displacement. "Go to 37 µm"
+  then moves **+37 µm from wherever the stage is**, compounding on every write.
+  This defect was found by the parallel `claude/stage-runaway-guard`
+  investigation of the same incident (SAMBA §69) and is a second, independent
+  path to the same structural fault: **the mode the client computes for versus
+  the mode the controller executes in.**
 
 ### `SmarActMCS2Stage.py` (Python, redeploy)
 - **`Initialise` restores what the motor `Init` wiped.** For each axis it
@@ -696,14 +713,30 @@ diverged — and it stopped failing loudly once `Init` had reset `Conversion` to
   continue, 30 s timeout set before each Init, SetZero refused while moving,
   `SetOffset(axis, 0)` once per axis + CL_ABSOLUTE re-asserted, travel limits
   applied/skipped/validated (empty, malformed, inverted, per-axis 0,0).
-- `py_compile` clean. The C++ was **not compiled here** (no Tango headers in
-  this environment) — brace/paren balance checked against HEAD and the diffs
-  are small and mechanical, but **build it on the MCS2 machine before
-  deploying**.
+- `py_compile` clean. **The C++ is committed unbuilt** — brace/paren balance
+  checked against HEAD and the diffs are small and mechanical, but it has not
+  been compiled. Build it before deploying.
+
+### Where the MCS2 servers actually live (corrects the July 2026 note)
+The July note said the MCS2 servers "run on a different computer". They do
+**not** — they run on this one (`intermag-d1666`, `TANGO_HOST=intermag-d1659`),
+launched from PATH by the local `Starter`:
+
+| | |
+|---|---|
+| Deployed binaries | `/home/intermag/miniforge3/bin/SmarActMCS2{Ctrl,Motor,Stage}` |
+| Build checkout | `/home/intermag/tango-devices/SmarActMCS2{Ctrl,Motor}/trunk` |
+| Previously built copies | `/home/intermag/tango-devices/*_compiled/` |
+| Build env | `MAKE_ENV=/home/intermag/.pixi/envs/pogo/share/pogo/preferences`; `tango.opt` takes `TANGO_HOME` from `$CONDA_PREFIX` and compiles with `-std=c++0x` (C++11 — the in-class member initializers added here are fine) |
+| Tango C++ headers | `/home/intermag/miniforge3/include/tango` (also in `envs/tango`) |
+
+The July note is right that `/usr/local/tango_servers` is **not** the target —
+that is why the Stage installer was rewritten to pip/console_scripts. The build
+checkout is a **separate copy** from this git repo; at the time of this batch it
+was byte-identical to the pre-batch HEAD for all three C++ files, so these
+changes apply cleanly on top of what is deployed. Keep them in step.
 
 ### Deployment order (each step is independently safe)
 1. `SmarActMCS2Stage.py` — Python, fixes the most likely trigger on its own.
 2. Set `TravelLimitsPm` in Jive (Z first) and run `ApplyTravelLimits`.
-3. Rebuild + deploy the Motor and Ctrl servers. Note the install.sh caveat
-   from the July 2026 batch: the MCS2 servers are **not** in
-   `/usr/local/tango_servers`.
+3. Build and deploy the Motor and Ctrl servers.

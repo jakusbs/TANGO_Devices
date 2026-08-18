@@ -89,6 +89,26 @@ class SmarActMCS2Stage(Device):
         mandatory=True
     )
 
+    TravelLimitsPm = device_property(
+        dtype=('float',),
+        default_value=[],
+        doc="Hardware travel limits, 6 values in PICOMETRES relative to the "
+            "logical zero: [Xmin, Xmax, Ymin, Ymax, Zmin, Zmax]. "
+            "Written to the controller's own range limit "
+            "(SA_CTL_PKEY_RANGE_LIMIT_MIN/MAX via the motors' "
+            "StepLimitMin/StepLimitMax attributes), which the MCS2 firmware "
+            "enforces itself — independent of move mode, of the Tango "
+            "servers, and of any client. This is the only guard that survives "
+            "an Init, a wrong unit conversion or a stale move mode. "
+            "An axis whose pair is 0,0 is left alone (range limit disabled). "
+            "Leave the property empty to disable the feature entirely. "
+            "Example for a stage that must not travel more than 40 um above "
+            "its zero in Z: [-1e8, 1e8, -1e8, 1e8, -1e8, 4e7]. "
+            "Re-applied automatically after Initialise and after SetZero — "
+            "the limits live in logical coordinates, so re-zeroing would "
+            "otherwise silently move them."
+    )
+
     # ---------------
     # General methods
     # ---------------
@@ -120,6 +140,171 @@ class SmarActMCS2Stage(Device):
                 f"{axis_name} axis not connected",
                 "Motor proxy unavailable — check XMotorDevice/YMotorDevice/ZMotorDevice properties and restart the server",
                 f"SmarActMCS2Stage::{axis_name}")
+
+    # ── Settings that must survive a motor Init ───────────────────────────
+    # SmarActMCS2Motor::init_device unconditionally resets these in the
+    # server's own state:
+    #
+    #   Conversion    -> 1     (Position reverts to raw picometres, so every
+    #                          number the client sends changes meaning by
+    #                          orders of magnitude)
+    #   UnitLimitMin  -> 0.0   (write_Position treats min == max == 0 as
+    #   UnitLimitMax  -> 0.0    "no limits", so the travel guard disappears)
+    #
+    # They are declared memorized in the .xmi, but whether TANGO replays a
+    # memorized value on the *Init command* — as opposed to at server
+    # start-up — is version dependent, and on this deployment it demonstrably
+    # does not (the same is true of MoveMode, which is why Initialise has to
+    # push that explicitly).  So Initialise captures them before the Init and
+    # writes them back afterwards.
+    _PRESERVE_ATTRS = ("Conversion", "UnitLimitMin", "UnitLimitMax")
+
+    def _memorized_value(self, dev, attr):
+        """Memorized value of `attr` from the TANGO database, or None.
+
+        This is what the operator configured, and — unlike a live readback —
+        it is unaffected by an earlier Init having already clobbered the
+        running value.  Used as the primary source so a stage that was
+        re-initialised before this fix existed still recovers.
+        """
+        try:
+            db = tango.Database()
+            props = db.get_device_attribute_property(dev, [attr])
+            val = props[attr]["__value"][0]
+            return float(val)
+        except Exception:
+            return None
+
+    def _capture_settings(self, dev, mp):
+        """Snapshot the preserve-list for one motor: memorized value first,
+        live readback as the fallback."""
+        snap = {}
+        for attr in self._PRESERVE_ATTRS:
+            val = self._memorized_value(dev, attr)
+            if val is None:
+                try:
+                    val = float(mp.read_attribute(attr).value)
+                except Exception:
+                    val = None
+            if val is not None:
+                snap[attr] = val
+        # A Conversion of 1 is what init_device leaves behind, so it is far
+        # more likely to be damage from an earlier Init than a real setting.
+        # Restoring it would just re-apply the bug; drop it and say so.
+        if snap.get("Conversion") == 1.0:
+            snap.pop("Conversion")
+        return snap
+
+    def _travel_limits(self):
+        """Configured hardware travel limits as {axis: (min_pm, max_pm)}.
+
+        Returns {} when the property is unset or malformed — the feature is
+        opt-in, so a stage without it behaves exactly as before.
+        """
+        vals = list(self.TravelLimitsPm or [])
+        if not vals:
+            return {}
+        if len(vals) != 6:
+            self.warn_stream(
+                f"TravelLimitsPm has {len(vals)} values, expected 6 "
+                "[Xmin,Xmax,Ymin,Ymax,Zmin,Zmax] — ignoring it")
+            return {}
+        out = {}
+        for i, axis in enumerate(("X", "Y", "Z")):
+            lo, hi = float(vals[2 * i]), float(vals[2 * i + 1])
+            if lo == 0.0 and hi == 0.0:
+                continue                      # this axis: limit disabled
+            if hi <= lo:
+                self.warn_stream(
+                    f"TravelLimitsPm for {axis}: max ({hi}) <= min ({lo}) — "
+                    "ignoring this axis")
+                continue
+            out[axis] = (int(lo), int(hi))
+        return out
+
+    def _apply_travel_limits(self):
+        """Push the configured range limits into the controller.
+
+        Returns (applied_description, problems).  Called after Initialise and
+        after SetZero: the range limit is expressed in logical coordinates, so
+        re-zeroing the frame moves it, and a limit that has quietly moved is
+        worse than none at all.
+        """
+        limits = self._travel_limits()
+        if not limits:
+            return "", []
+        applied, problems = [], []
+        for name, dev in [("X", self.XMotorDevice),
+                          ("Y", self.YMotorDevice),
+                          ("Z", self.ZMotorDevice)]:
+            if name not in limits:
+                continue
+            lo, hi = limits[name]
+            try:
+                mp = tango.DeviceProxy(dev)
+                mp.write_attribute("StepLimitMin", lo)
+                mp.write_attribute("StepLimitMax", hi)
+                back_lo = int(mp.read_attribute("StepLimitMin").value)
+                back_hi = int(mp.read_attribute("StepLimitMax").value)
+                if (back_lo, back_hi) != (lo, hi):
+                    problems.append(
+                        f"{name}: range limit read back "
+                        f"[{back_lo}, {back_hi}] pm, expected [{lo}, {hi}]")
+                else:
+                    applied.append(f"{name}=[{lo}, {hi}]pm")
+            except Exception as e:
+                problems.append(f"{name}: range limit not applied: {e}")
+                self.warn_stream(f"{name}: range limit not applied: {e}")
+        return ", ".join(applied), problems
+
+    @command()
+    @DebugIt()
+    def ApplyTravelLimits(self):
+        """
+        Write the TravelLimitsPm property into the controller's own range
+        limit for each configured axis, and verify it by reading back.
+
+        The MCS2 firmware enforces this limit itself, so it holds even when
+        the move mode, the unit conversion or the client are wrong — which is
+        exactly the situation the software guards cannot cover.  Values are
+        PICOMETRES in the current logical frame, so this is re-run
+        automatically after Initialise and SetZero.
+
+        :rtype: PyTango.DevVoid
+        """
+        limits = self._travel_limits()
+        if not limits:
+            self.set_state(DevState.ON)
+            self.set_status(
+                "No hardware travel limits configured — set the TravelLimitsPm "
+                "device property ([Xmin,Xmax,Ymin,Ymax,Zmin,Zmax] in pm) to "
+                "enable the controller-side guard.")
+            return
+        applied, problems = self._apply_travel_limits()
+        if problems:
+            self.set_state(DevState.FAULT)
+            self.set_status("Travel limits: " + "; ".join(problems))
+            tango.Except.throw_exception(
+                "ApplyTravelLimits failed",
+                "; ".join(problems),
+                "SmarActMCS2Stage::ApplyTravelLimits")
+        self.set_state(DevState.ON)
+        self.set_status(f"Hardware travel limits applied: {applied}")
+
+    def _restore_settings(self, name, mp, snap):
+        """Write a captured snapshot back after Init.  Returns a list of
+        human-readable problems (empty when everything was restored)."""
+        problems = []
+        for attr, val in snap.items():
+            try:
+                mp.write_attribute(attr, val)
+                back = float(mp.read_attribute(attr).value)
+                if abs(back - val) > 1e-9:
+                    problems.append(
+                        f"{name}.{attr} read back {back:g}, expected {val:g}")
+            except Exception as e:
+                problems.append(f"{name}.{attr} could not be restored: {e}")
+        return problems
 
     def always_executed_hook(self):
         """Method always executed before any TANGO command is executed."""
@@ -277,6 +462,7 @@ class SmarActMCS2Stage(Device):
         """
         errors = []
         states = []
+        warnings = []
         self.set_state(DevState.INIT)
         for name, dev in [("X", self.XMotorDevice),
                           ("Y", self.YMotorDevice),
@@ -286,19 +472,40 @@ class SmarActMCS2Stage(Device):
                 mp = tango.DeviceProxy(dev)
                 # Give Init room to reconnect the Ctrl + re-subscribe events.
                 mp.set_timeout_millis(30000)
+                snap = self._capture_settings(dev, mp)
                 mp.command_inout("Init")
             except Exception as e:
                 errors.append(f"{name} ({dev}): {e}")
                 self.warn_stream(f"Failed to initialise {name} axis: {e}")
                 continue
             # Force closed-loop absolute mode on the hardware so a stale move
-            # mode from the hand controller can't make µm moves fail with
-            # "invalid parameter".  Best-effort: Init already succeeded, so a
-            # MoveMode-set failure is logged but does not fault the stage.
+            # mode from the hand controller can't be executed as an open-loop
+            # step move.  NOT best-effort any more: leaving the controller in
+            # STEP/SCAN mode while the motor's cache says CL_ABSOLUTE is the
+            # exact condition that turns a small position write into an
+            # uncontrolled open-loop run, so a failure here is an error.
             try:
                 mp.write_attribute("MoveMode", 0)   # 0 = CL_ABSOLUTE
+                if int(mp.read_attribute("MoveMode").value) != 0:
+                    raise RuntimeError("MoveMode did not read back as 0")
             except Exception as e:
+                errors.append(
+                    f"{name}: could not force closed-loop absolute mode: {e}")
                 self.warn_stream(f"{name}: could not force MoveMode: {e}")
+            # Put back the unit conversion and travel limits the motor's
+            # init_device just wiped.  Without this, every later position
+            # write is interpreted in a different unit and the motor-side
+            # limit check is disabled.
+            problems = self._restore_settings(name, mp, snap)
+            if problems:
+                errors.extend(problems)
+            missing = [a for a in self._PRESERVE_ATTRS if a not in snap]
+            if missing:
+                warnings.append(
+                    f"{name}: no stored value for {'/'.join(missing)} — "
+                    "check it in Jive")
+                self.warn_stream(
+                    f"{name}: nothing to restore for {'/'.join(missing)}")
             # Report the resulting motor state: an axis that comes back
             # FAULT/"not referenced" needs Home, not another Init.
             try:
@@ -313,6 +520,11 @@ class SmarActMCS2Stage(Device):
             self._z_proxy = tango.DeviceProxy(self.ZMotorDevice)
         except Exception as e:
             errors.append(f"stage proxies: {e}")
+        # Re-assert the controller-side range limits.  They live in the
+        # controller and survive an Init on their own, but re-writing them
+        # here means one command restores the whole safe state.
+        limits_applied, limit_problems = self._apply_travel_limits()
+        errors.extend(limit_problems)
         if errors:
             self.set_state(DevState.FAULT)
             self.set_status("Initialise errors: " + "; ".join(errors))
@@ -321,9 +533,15 @@ class SmarActMCS2Stage(Device):
                 "; ".join(errors),
                 "SmarActMCS2Stage::Initialise")
         self.set_state(DevState.ON)
-        self.set_status(
-            "All axes re-initialised (" + ", ".join(states) + "). "
-            "Any axis reading FAULT/not-referenced needs the Home command.")
+        msg = ("All axes re-initialised (" + ", ".join(states) + "), "
+               "closed-loop absolute mode forced, unit conversion and unit "
+               "limits restored. "
+               "Any axis reading FAULT/not-referenced needs the Home command.")
+        if limits_applied:
+            msg += f"  Hardware travel limits: {limits_applied}."
+        if warnings:
+            msg += "  WARNING: " + "; ".join(warnings)
+        self.set_status(msg)
         # PROTECTED REGION END #    //  SmarActMCS2Stage.Initialise
 
     @command(
@@ -436,6 +654,27 @@ class SmarActMCS2Stage(Device):
 
         :rtype: PyTango.DevVoid
         """
+        # Zeroing reads the current position to compute the offset, so an axis
+        # that is still travelling would be pinned to a position it has
+        # already left.  Refuse rather than silently mis-zero the frame.
+        moving = []
+        for name, proxy in [("X", self._x_proxy), ("Y", self._y_proxy),
+                            ("Z", self._z_proxy)]:
+            try:
+                if proxy is not None and proxy.state() == DevState.MOVING:
+                    moving.append(name)
+            except Exception:
+                pass
+        if moving:
+            self.set_state(DevState.FAULT)
+            self.set_status(
+                "SetZero refused: axis/axes still moving: " + ", ".join(moving))
+            tango.Except.throw_exception(
+                "SetZero refused",
+                "Axes still moving: " + ", ".join(moving) +
+                ". Wait for the move to finish (or send Stop) and retry.",
+                "SmarActMCS2Stage::SetZero")
+
         errors = []
         for name, dev in [("X", self.XMotorDevice),
                           ("Y", self.YMotorDevice),
@@ -451,6 +690,31 @@ class SmarActMCS2Stage(Device):
             except Exception as e:
                 errors.append(f"{name} ({dev}): {e}")
                 self.warn_stream(f"Failed to zero {name} axis: {e}")
+                continue
+            # The Ctrl's SetOffset re-arms closed-loop holding by briefly
+            # switching to CL_RELATIVE and then restoring whatever move mode
+            # it found — including STEP or SCAN, which a hand controller can
+            # leave behind.  That would put the hardware back into open-loop
+            # mode while the motor's cache still says CL_ABSOLUTE, so the next
+            # position write becomes an open-loop step move.  Re-assert
+            # closed-loop absolute on both sides afterwards.  (Defence in
+            # depth: this works even against a Ctrl server that has not been
+            # rebuilt with the matching fix.)
+            try:
+                mp.write_attribute("MoveMode", 0)   # 0 = CL_ABSOLUTE
+                if int(mp.read_attribute("MoveMode").value) != 0:
+                    raise RuntimeError("MoveMode did not read back as 0")
+            except Exception as e:
+                errors.append(
+                    f"{name}: closed-loop absolute mode not restored after "
+                    f"zeroing: {e}")
+                self.warn_stream(f"{name}: MoveMode not restored: {e}")
+        # The controller's range limits are expressed in the LOGICAL frame we
+        # have just moved, so a limit configured before the re-zero now sits
+        # somewhere else entirely.  Re-apply it relative to the new zero — a
+        # limit that has silently shifted is more dangerous than none.
+        limits_applied, limit_problems = self._apply_travel_limits()
+        errors.extend(limit_problems)
         # Refresh cached positions from the re-zeroed motors.
         try:
             self._x = self._x_proxy.Position if self._x_proxy else 0.0
@@ -466,7 +730,10 @@ class SmarActMCS2Stage(Device):
                 "; ".join(errors),
                 "SmarActMCS2Stage::SetZero")
         self.set_state(DevState.ON)
-        self.set_status("Current position defined as 0 on all axes (no movement).")
+        msg = "Current position defined as 0 on all axes (no movement)."
+        if limits_applied:
+            msg += f"  Hardware travel limits re-applied: {limits_applied}."
+        self.set_status(msg)
         # PROTECTED REGION END #    //  SmarActMCS2Stage.SetZero
 
 # ----------

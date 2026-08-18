@@ -146,7 +146,25 @@ private:
     EventCallback* eventCallback;
     int eventID;
     Tango::DevBoolean ttydebug;
-    
+
+    // ---- Settings that must survive an Init command -------------------------
+    // init_device() used to reset Conversion to 1 and UnitLimitMin/Max to 0/0
+    // every time.  Conversion is the unit scale for every Position read and
+    // write (native units are picometer), and min == max == 0 disables the
+    // travel-limit check in write_Position -- so an Init silently changed what
+    // a position number means AND removed the guard against a bad one.  These
+    // attributes are declared memorized, but the memorized value is only
+    // replayed at server start-up, not on the Init command.
+    //
+    // The Init command re-runs delete_device()/init_device() on the *same*
+    // object, so plain members survive it.  They are seeded by the in-class
+    // initializers below (which run before the constructor body calls
+    // init_device()) and updated by the corresponding write_* methods.
+    bool             settingsPersisted = false;
+    Tango::DevDouble persistedConversion = 1.0;
+    Tango::DevDouble persistedUnitLimitMin = 0.0;
+    Tango::DevDouble persistedUnitLimitMax = 0.0;
+
 
 /*----- PROTECTED REGION END -----*/	//	SmarActMCS2Motor::Data Members
 

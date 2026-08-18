@@ -2582,7 +2582,25 @@ void SmarActMCS2Ctrl::set_offset(const Tango::DevVarLong64Array *argin)
 	
 	//	Add your own code
 	int64_t offset, pos;
-    bool holding = axis_state((*argin)[0]) &  SA_CTL_CH_STATE_BIT_CLOSED_LOOP_ACTIVE;
+    Tango::DevUShort state = axis_state((*argin)[0]);
+
+    // The offset is computed from the position read a moment from now, so an
+    // axis that is still travelling would be zeroed against a position it has
+    // already left -- silently shifting the whole coordinate frame by however
+    // far it got.  Refuse instead.
+    if(state & SA_CTL_CH_STATE_BIT_ACTIVELY_MOVING)
+    {
+        stringstream tmp;
+        tmp << "Axis " << (int) (*argin)[0]
+            << " is still moving -- stop it before changing the offset";
+        Tango::Except::throw_exception(
+            "Write error",
+            tmp.str().c_str(),
+            "SmarActMCS2Ctrl::set_offset",
+            Tango::WARN);
+    }
+
+    bool holding = state & SA_CTL_CH_STATE_BIT_CLOSED_LOOP_ACTIVE;
 
 	setProperty(int8_t((*argin)[0]), SA_CTL_PKEY_LOGICAL_SCALE_OFFSET, (int64_t) 0);
 	getProperty(int8_t((*argin)[0]), SA_CTL_PKEY_POSITION, &pos);
@@ -2592,6 +2610,23 @@ void SmarActMCS2Ctrl::set_offset(const Tango::DevVarLong64Array *argin)
     if(holding)
     {
         Tango::DevLong move_mode = get_move_mode(int8_t((*argin)[0]));
+        // Never hand an open-loop mode back to the hardware.  A hand
+        // controller leaves STEP (or SCAN) behind; restoring it here would
+        // put the controller into open-loop mode while the motor device's
+        // cached MoveMode still says closed-loop absolute, so the next
+        // position write is executed as an uncontrolled step move.  There is
+        // no legitimate reason for a zero-in-place to leave the axis in a
+        // different control regime than a closed-loop one, so anything that
+        // is not CL_ABSOLUTE/CL_RELATIVE is restored as CL_ABSOLUTE.
+        if(move_mode != SA_CTL_MOVE_MODE_CL_ABSOLUTE &&
+           move_mode != SA_CTL_MOVE_MODE_CL_RELATIVE)
+        {
+            WARN_STREAM << "SmarActMCS2Ctrl::SetOffset(): axis "
+                        << (int) (*argin)[0] << " was in move mode "
+                        << move_mode << " (open loop); restoring it as "
+                        << "CL_ABSOLUTE instead" << endl;
+            move_mode = SA_CTL_MOVE_MODE_CL_ABSOLUTE;
+        }
         Tango::DevVarLongArray mode_array;
         Tango::DevVarLong64Array move_array;
         move_array.length(2);
@@ -2604,7 +2639,26 @@ void SmarActMCS2Ctrl::set_offset(const Tango::DevVarLong64Array *argin)
             set_move_mode(&mode_array);
         }
         move_array[1] = 0;
-        set_position(&move_array);
+        // The restore below MUST run even if the re-peg throws.  set_position
+        // raises on any SA_CTL error, and without this the axis was left in
+        // CL_RELATIVE -- where write_Position's `default` branch sends an
+        // absolute target straight to SA_CTL_Move, which executes it as a
+        // RELATIVE displacement.  "Go to 37 um" then moves +37 um from
+        // wherever the stage is, compounding on every write.
+        try
+        {
+            set_position(&move_array);
+        }
+        catch(...)
+        {
+            if(move_mode != SA_CTL_MOVE_MODE_CL_RELATIVE)
+            {
+                mode_array[1] = move_mode;
+                try { set_move_mode(&mode_array); }
+                catch(...) { /* report the original failure, not this one */ }
+            }
+            throw;
+        }
 		if(move_mode != SA_CTL_MOVE_MODE_CL_RELATIVE)
         {
         	mode_array[1] = move_mode;

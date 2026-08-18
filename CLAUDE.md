@@ -602,3 +602,108 @@ the ADS TCP session to the Beckhoff dies and nothing ever rebuilt it.
   1808 exemption, AutoReconnect=False, keepalive repair, FAULT clearing,
   failed-init self-heal — 17 checks. Not committed (stub scaffolding);
   `py_compile` clean.
+
+---
+
+## Recent Changes (August 2026) — MCS2 Z-Axis Runaway: Server-Side Fixes
+
+Branch `claude/mcs2-z-runaway-safety`, with the SAMBA half on the same branch
+there (SAMBA §69, which has the full failure analysis). **Safety batch** — the
+IR Z axis twice ran away far enough to crash the sample into the objective.
+`SmarActMCS2Stage.py` is Python (**redeploy**); the Motor and Ctrl changes need
+a **C++ rebuild** on the MCS2 machine.
+
+### Root cause, in one line
+A closed-loop position write executed by the controller as an **open-loop step
+move**, because the motor's cached `MoveMode` and the hardware's move mode had
+diverged — and it stopped failing loudly once `Init` had reset `Conversion` to
+1, which brought the (wrongly interpreted) value into the valid step range.
+
+### `SmarActMCS2Motor` (C++, needs rebuild)
+- **`init_device` no longer wipes `Conversion` / `UnitLimitMin` /
+  `UnitLimitMax`.** It used to hard-set them to 1 / 0 / 0 on every `Init`:
+  `Conversion` is the picometre-per-unit scale for *every* Position read and
+  write, and min == max == 0 is `write_Position`'s "limits ignored" case — so
+  one `Init` silently changed what a position number means **and** removed the
+  guard against a bad one. They are declared memorized, but the memorized
+  value is only replayed at server start-up, not on the `Init` command (same
+  reason the stage has to push `MoveMode` explicitly). New plain members
+  `persistedConversion` / `persistedUnitLimitMin` / `persistedUnitLimitMax` +
+  `settingsPersisted` (in-class initializers, C++11) survive the
+  `delete_device`/`init_device` pair — the Init command re-runs them on the
+  *same* object — and are updated by the matching `write_*` methods.
+- **`init_device` syncs the move-mode cache from the hardware**
+  (`GetMoveMode`) instead of assuming CL_ABSOLUTE, and **seeds
+  `attr_Position_read`** from `GetPosition`. That array was freshly allocated
+  and never written: in the open-loop modes `read_Position` returns the cache
+  and `write_Position` derives a step count from it, so the first open-loop
+  move used uninitialised memory as its reference.
+- **`write_Position` pushes the move mode to the controller before every
+  move** (`SetMoveMode(axis, cached)`), making the cache/hardware divergence
+  structurally impossible. Costs one extra round trip per scan point —
+  negligible against settle + integration, and the §52 note that deliberately
+  left the hot path alone is superseded: correctness of the *unit of the
+  command* outranks a millisecond.
+- `write_Conversion` rejects a value ≤ 0, and `write_Position` refuses to move
+  when `Conversion` ≤ 0 rather than scaling the target by an unknown factor.
+
+### `SmarActMCS2Ctrl::set_offset` (C++, needs rebuild)
+- **Never hands an open-loop mode back to the hardware.** The holding re-peg
+  read the current move mode, switched to CL_RELATIVE for a 0-move, then
+  restored what it found — including a STEP/SCAN mode left by the hand
+  controller, immediately undoing the CL_ABSOLUTE that `Initialise` had just
+  forced. Anything that is not CL_ABSOLUTE/CL_RELATIVE is now restored as
+  CL_ABSOLUTE, with a `WARN_STREAM`.
+- **Refuses to change the offset while the axis is actively moving** — the
+  offset is computed from a position read a moment later, so a travelling axis
+  would be zeroed against a position it had already left, shifting the whole
+  coordinate frame by however far it got.
+
+### `SmarActMCS2Stage.py` (Python, redeploy)
+- **`Initialise` restores what the motor `Init` wiped.** For each axis it
+  snapshots `Conversion` / `UnitLimitMin` / `UnitLimitMax` — **memorized value
+  from the Tango DB first**, live readback as the fallback — runs `Init`, then
+  writes them back and verifies by read-back. A snapshot `Conversion` of 1 is
+  *dropped*, not restored: 1 is what `init_device` leaves behind, so restoring
+  it would just re-apply the damage; the status says so instead. This makes
+  the command work even on a stage that was re-initialised before the fix, and
+  even against an un-rebuilt Motor server.
+- **`MoveMode = 0` is no longer best-effort.** It is verified by read-back and
+  a failure is a collected error (FAULT + raise), not a warning. Leaving the
+  controller in an open-loop mode while the cache says closed-loop absolute is
+  the exact runaway condition.
+- **`SetZero` refuses while any axis is MOVING**, and **re-asserts
+  `MoveMode = 0` on each motor after the `SetOffset`** — defence in depth that
+  works against a Ctrl server that has *not* been rebuilt yet.
+- **New `TravelLimitsPm` device property + `ApplyTravelLimits` command.**
+  6 values `[Xmin,Xmax,Ymin,Ymax,Zmin,Zmax]` in **picometres** in the current
+  logical frame, written to `SA_CTL_PKEY_RANGE_LIMIT_MIN/MAX` through the
+  motors' `StepLimitMin`/`StepLimitMax` attributes and verified by read-back.
+  The MCS2 firmware enforces this itself, so it holds when the move mode, the
+  unit conversion or the client are all wrong — **the only guard that survives
+  everything above**. Opt-in: empty property = feature off, a `0,0` pair =
+  that axis unlimited. Re-applied automatically at the end of `Initialise`
+  **and of `SetZero`**, because the limit lives in logical coordinates and a
+  re-zero would otherwise move it silently — a limit that has quietly shifted
+  is worse than none.
+
+### Verification
+- Stubbed-pytango harness over the real `Initialise` / `SetZero` /
+  `ApplyTravelLimits` (34 checks, not committed): settings captured and
+  restored, DB memorized value preferred over a clobbered readback,
+  `Conversion == 1` dropped + warned, MoveMode read-back failure → FAULT +
+  raise naming the axis, per-axis Init failure collected while the other axes
+  continue, 30 s timeout set before each Init, SetZero refused while moving,
+  `SetOffset(axis, 0)` once per axis + CL_ABSOLUTE re-asserted, travel limits
+  applied/skipped/validated (empty, malformed, inverted, per-axis 0,0).
+- `py_compile` clean. The C++ was **not compiled here** (no Tango headers in
+  this environment) — brace/paren balance checked against HEAD and the diffs
+  are small and mechanical, but **build it on the MCS2 machine before
+  deploying**.
+
+### Deployment order (each step is independently safe)
+1. `SmarActMCS2Stage.py` — Python, fixes the most likely trigger on its own.
+2. Set `TravelLimitsPm` in Jive (Z first) and run `ApplyTravelLimits`.
+3. Rebuild + deploy the Motor and Ctrl servers. Note the install.sh caveat
+   from the July 2026 batch: the MCS2 servers are **not** in
+   `/usr/local/tango_servers`.

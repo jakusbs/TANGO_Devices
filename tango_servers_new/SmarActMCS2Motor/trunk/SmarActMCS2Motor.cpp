@@ -287,9 +287,12 @@ void SmarActMCS2Motor::init_device()
 		return;
 
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::init_device) ENABLED START -----*/
-    *attr_UnitLimitMin_read = 0.0;
-    *attr_UnitLimitMax_read = 0.0;
-	
+    // Restore the settings an Init used to wipe (see the note on
+    // settingsPersisted in the header).  The first time round nothing has
+    // been written yet, so the historic defaults apply.
+    *attr_UnitLimitMin_read = settingsPersisted ? persistedUnitLimitMin : 0.0;
+    *attr_UnitLimitMax_read = settingsPersisted ? persistedUnitLimitMax : 0.0;
+
 	//	Initialize device
     holdingThread = NULL;
     ttydebug = isatty(2);
@@ -300,9 +303,32 @@ void SmarActMCS2Motor::init_device()
 		set_status(smarctrl->status());
         eventCallback = new EventCallback(ttydebug, axisNumber);
         eventID = smarctrl->subscribe_event("EventInfo", Tango::CHANGE_EVENT, eventCallback, true);
-        *attr_MoveMode_read      = 0;
-        *attr_Conversion_read    = 1;
+        *attr_Conversion_read    = settingsPersisted ? persistedConversion : 1;
         *attr_AutoZero_read      = true;
+        // Read the move mode back from the controller instead of assuming
+        // CL_ABSOLUTE.  The hardware keeps whatever mode was last set --
+        // including a STEP mode left behind by the hand controller -- and a
+        // cache that disagrees with it makes write_Position compute a value
+        // for one mode which the controller then executes in another.
+        {
+            Tango::DeviceData mmin, mmout;
+            mmin << axisNumber;
+            mmout = smarctrl->command_inout("GetMoveMode", mmin);
+            mmout >> *attr_MoveMode_read;
+        }
+        // Seed the position cache from the hardware.  In the open-loop modes
+        // read_Position returns this cached value and write_Position derives a
+        // relative step count from it, so leaving the freshly allocated array
+        // uninitialised would make the first open-loop move a garbage-sized
+        // one.  Must come after Conversion is set.
+        {
+            Tango::DeviceData pin, pout;
+            pin << axisNumber;
+            pout = smarctrl->command_inout("GetPosition", pin);
+            Tango::DevLong64 raw = 0;
+            pout >> raw;
+            *attr_Position_read = (Tango::DevDouble) (raw / *attr_Conversion_read);
+        }
         if(!picoScaleEncoded)
         {
             Tango::DeviceData devin, devout;
@@ -758,6 +784,29 @@ void SmarActMCS2Motor::write_Position(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::write_Position) ENABLED START -----*/
+    // ---- Make the controller's move mode match the one we compute for -------
+    // The value handed to SA_CTL_Move means something completely different in
+    // each move mode (position in encoder steps vs. a step count vs. a piezo
+    // scan value).  This method computes it from the *cached* mode, but the
+    // controller executes it in the mode the *hardware* currently holds --
+    // and the two can diverge: the hand controller changes the hardware mode
+    // behind our back, and the Ctrl's SetOffset restores whatever mode it
+    // found.  A closed-loop position write then gets executed as an open-loop
+    // step move, which travels with no position feedback and no limit check.
+    //
+    // Pushing the mode before every move costs one extra round trip per point
+    // (negligible next to the settle + integration time of a scan point) and
+    // makes the divergence structurally impossible.
+    {
+        Tango::DeviceData mmin;
+        Tango::DevVarLongArray* mm = new Tango::DevVarLongArray();
+        mm->length(2);
+        (*mm)[0] = Tango::DevLong(axisNumber);
+        (*mm)[1] = *attr_MoveMode_read;
+        mmin << mm;
+        smarctrl->command_inout("SetMoveMode", mmin);
+    }
+
     Tango::DeviceData devin;
     Tango::DevVarLong64Array* in = new Tango::DevVarLong64Array();
     in->length(2);
@@ -765,6 +814,15 @@ void SmarActMCS2Motor::write_Position(Tango::WAttribute &attr)
     if(*attr_MoveMode_read == SA_CTL_MOVE_MODE_CL_ABSOLUTE ||
        *attr_MoveMode_read == SA_CTL_MOVE_MODE_CL_RELATIVE)
     {
+        if(*attr_Conversion_read <= 0.0)
+        {
+            Tango::Except::throw_exception(
+                "Write error",
+                "Conversion is not set (<= 0) -- refusing to move, the target "
+                "would be scaled by an unknown factor",
+                "SmarActMCS2Motor::write_Position",
+                Tango::WARN);
+        }
         if(*attr_UnitLimitMin_read == 0 && *attr_UnitLimitMax_read == 0)
         {
             // do nothing
@@ -778,7 +836,7 @@ void SmarActMCS2Motor::write_Position(Tango::WAttribute &attr)
 			    Tango::WARN);
         }
     }
-            
+
     switch(*attr_MoveMode_read)
     {
         case SA_CTL_MOVE_MODE_STEP:
@@ -840,7 +898,19 @@ void SmarActMCS2Motor::write_Conversion(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::write_Conversion) ENABLED START -----*/
+    // A zero or negative scale would turn every position write into nonsense
+    // (or a divide-by-zero on the next read), so refuse it outright.
+    if(w_val <= 0.0)
+    {
+        Tango::Except::throw_exception(
+            "Write error",
+            "Conversion must be > 0 (it is the picometer-per-unit scale)",
+            "SmarActMCS2Motor::write_Conversion",
+            Tango::WARN);
+    }
     *attr_Conversion_read = w_val;
+    persistedConversion = w_val;
+    settingsPersisted   = true;
 	Tango::DeviceData devin;
     Tango::DevVarDoubleArray* in = new Tango::DevVarDoubleArray();
     in->length(2);
@@ -888,7 +958,9 @@ void SmarActMCS2Motor::write_UnitLimitMin(Tango::WAttribute &attr)
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::write_UnitLimitMin) ENABLED START -----*/
     *attr_UnitLimitMin_read = w_val;
-	
+    persistedUnitLimitMin   = w_val;
+    settingsPersisted       = true;
+
 	/*----- PROTECTED REGION END -----*/	//	SmarActMCS2Motor::write_UnitLimitMin
 }
 //--------------------------------------------------------
@@ -927,8 +999,10 @@ void SmarActMCS2Motor::write_UnitLimitMax(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(SmarActMCS2Motor::write_UnitLimitMax) ENABLED START -----*/
-    *attr_UnitLimitMax_read = w_val;	
-	
+    *attr_UnitLimitMax_read = w_val;
+    persistedUnitLimitMax   = w_val;
+    settingsPersisted       = true;
+
 	/*----- PROTECTED REGION END -----*/	//	SmarActMCS2Motor::write_UnitLimitMax
 }
 //--------------------------------------------------------

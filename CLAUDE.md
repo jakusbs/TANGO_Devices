@@ -651,8 +651,14 @@ diverged — and it stopped failing loudly once `Init` had reset `Conversion` to
   negligible against settle + integration, and the §52 note that deliberately
   left the hot path alone is superseded: correctness of the *unit of the
   command* outranks a millisecond.
-- `write_Conversion` rejects a value ≤ 0, and `write_Position` refuses to move
-  when `Conversion` ≤ 0 rather than scaling the target by an unknown factor.
+- `write_Conversion` rejects **0**, and `write_Position` refuses to move when
+  `Conversion` is 0 rather than scaling the target to zero. An earlier revision
+  of this batch rejected `<= 0`, which was **wrong**: a *negative* conversion is
+  legitimate and in use — it inverts the axis direction. The live IR rig has
+  `Conversion = -1e6` on X and Y and `+1e6` on Z, so the `<= 0` guard would have
+  refused every X and Y move and made the memorized replay at server start-up
+  throw. Found by reading the real memorized values out of the Tango DB before
+  the rebuilt binary was deployed. **Only zero is invalid.**
 
 ### `SmarActMCS2Ctrl::set_offset` (C++, needs rebuild)
 - **Never hands an open-loop mode back to the hardware.** The holding re-peg
@@ -740,3 +746,22 @@ changes apply cleanly on top of what is deployed. Keep them in step.
 1. `SmarActMCS2Stage.py` — Python, fixes the most likely trigger on its own.
 2. Set `TravelLimitsPm` in Jive (Z first) and run `ApplyTravelLimits`.
 3. Build and deploy the Motor and Ctrl servers.
+
+### Recorded rig configuration (read from the Tango DB, August 2026)
+`smaract2/control/IR-controller` → `smaract2/mcs2/{x,y,z}`. Memorized values:
+
+| | X | Y | Z |
+|---|---|---|---|
+| `Conversion` | **−1e6** | **−1e6** | +1e6 |
+| `UnitLimitMin/Max` | 0 / 0 (off) | 0 / 0 (off) | **−100 / +100** |
+| `StepLimitMin/Max` (firmware range limit) | unset | 0 / 0 (off) | **0 / 0 (off)** |
+| `MoveMode` | 0 | 0 | 0 |
+
+So Position is in **µm** on all three axes (matching Samba's `act1_unit`/`z_unit`
+= µm; the §3 table in the SAMBA CLAUDE.md saying "nm" is stale), X and Y are
+direction-inverted, and the only travel limit anywhere is the Z software one.
+**The controller-side range limit is not set on any axis**, and
+`TravelLimitsPm` on the stage device is not set either — so `ApplyTravelLimits`
+is currently a no-op. Note the Z software limit is skipped in STEP/SCAN mode by
+`write_Position`'s own `if CL_ABSOLUTE || CL_RELATIVE` guard, so it does not
+bound an open-loop runaway.

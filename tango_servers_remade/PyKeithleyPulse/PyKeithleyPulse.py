@@ -35,8 +35,13 @@ class PyKeithleyPulse(Device):
     """
     Keithley 6221 square-wave (pulse) generator.
     Amplitude and compliance are in mA and V respectively.
-    Frequency is in Hz, pulse duration in s (stored but not sent separately —
-    set frequency to control period).
+    Frequency is in Hz; `pulseDuration` is the half-period, derived from
+    `frequency` (writing either updates the other).
+
+    Writing `pulseAmplitude` starts (or re-arms) the square wave, the same
+    way `amplitude` does on PyKeithley/PyKeithley2 — a non-zero write arms
+    and initiates it, a zero write aborts it.  `SQUAREWAVE` remains available
+    to (re-)start the wave with the current settings.
 
     **Properties:**
     - SocketProxy: TANGO path to the Socket device connected to the Keithley
@@ -86,8 +91,22 @@ class PyKeithleyPulse(Device):
     @pulseAmplitude.write
     def pulseAmplitude(self, value):
         self._pulse_amplitude = min(abs(value), self._max_amplitude)
-        if self._wave_running:
-            self._rearm()
+        # Writing the amplitude *starts* the square wave, matching
+        # PyKeithley/PyKeithley2 where `amplitude.write` does WAVEOFF +
+        # SINEWAVE.  Previously this only re-armed a wave that was already
+        # running, so a client that set an amplitude and expected current
+        # (SAMBA's hardware panel, the current sweep) updated a cached value
+        # and sourced nothing until someone called SQUAREWAVE by hand.
+        # _rearm() sends SOUR:WAVE:ABOR first, so it is safe from any state.
+        if self._pulse_amplitude == 0.0:
+            # SOUR:WAVE:AMPL 0 is outside the instrument's range
+            # (1e-12 … 0.105 A) and would be rejected, so a zero amplitude
+            # means "stop the wave" — the meaning SAMBA's panel gives it.
+            self.keithley.WriteLine('SOUR:WAVE:ABOR')
+            self._wave_running = False
+            return
+        self._rearm()
+        self._wave_running = True
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                unit='s', doc="Pulse half-period in s; writing updates frequency (= 1 / (2 * duration))")
@@ -114,6 +133,10 @@ class PyKeithleyPulse(Device):
     @maxAmplitude.write
     def maxAmplitude(self, value):
         self._max_amplitude = abs(value)
+        # The clamp is applied in _rearm(), so lowering the cap below a
+        # running amplitude has to re-arm to actually take effect.
+        if self._wave_running:
+            self._rearm()
 
     @attribute(dtype=float, access=AttrWriteType.READ_WRITE,
                memorized=True, hw_memorized=True,

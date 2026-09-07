@@ -765,3 +765,66 @@ direction-inverted, and the only travel limit anywhere is the Z software one.
 is currently a no-op. Note the Z software limit is skipped in STEP/SCAN mode by
 `write_Position`'s own `if CL_ABSOLUTE || CL_RELATIVE` guard, so it does not
 bound an open-loop runaway.
+
+---
+
+## Recent Changes (September 2026) — PyKeithleyPulse: Amplitude Write Starts the Wave
+
+Branch `claude/keithley-pulse-source`, with the SAMBA half on the same branch
+(SAMBA §77, which carries the full incident analysis). **Needs redeploy.**
+Context: SAMBA's Green setup was pointed at `PyKeithleyPulse` and applying a
+current failed.
+
+### The asymmetry with PyKeithley
+`PyKeithley.amplitude.write` calls `WAVEOFF()` + `SINEWAVE()` — writing an
+amplitude *starts* the sine wave. `PyKeithleyPulse.pulseAmplitude.write` only
+re-armed `if self._wave_running`, and that flag is set solely by the
+`SQUAREWAVE` command. A client that writes an amplitude and expects current
+(SAMBA's hardware panel, its current sweep) therefore updated a cached value,
+sent **no SCPI at all**, and got no error.
+
+- `pulseAmplitude.write` now `_rearm()`s unconditionally and sets
+  `_wave_running`. `_rearm()` already sends `SOUR:WAVE:ABOR` first, so it is
+  safe from IDLE/ARMED/RUNNING alike.
+- A **zero** write aborts the wave instead of arming one:
+  `SOUR:WAVE:AMPL 0` is outside the instrument's 1e-12…0.105 A range and
+  would be rejected, and zero is what SAMBA writes as its fallback when the
+  `Off` command fails.
+- `maxAmplitude.write` re-arms while running, so lowering the cap below a
+  live amplitude takes effect (the clamp is applied inside `_rearm`).
+- `SQUAREWAVE` is unchanged and still (re-)starts the wave from the current
+  settings. The class docstring's stale "pulse duration … stored but not sent
+  separately" line was corrected — it is derived from `frequency`.
+
+### The deployed build predates this file
+Read off the live device: `maxAmplitude` is **WRITE-only** and
+`pulseDuration` = 0.004 s while `frequency` = 3662.11 Hz — so `pulseDuration`
+is stored independently there and does not track `frequency`, i.e. the
+running server is older than fix 7 in the Keithley section above (computed
+`pulseDuration`) and older than the READ_WRITE `maxAmplitude`. On the
+deployed build the half-period is decorative and only `frequency` sets the
+period. One redeploy brings all three.
+
+`maxAmplitude`'s memorized DB value is **7.5** mA. It is `memorized` without
+`memorizedAtInit` (`.xmi`: `rwType="WRITE" memorized="true"`), so it is not
+replayed and the server starts at 105 — but a write from Jive caps the source
+at 7.5 mA silently, since the attribute cannot be read back.
+
+### Socket sharing — only one server may drive unit 1
+`PyKeithleyPulse`'s `SocketProxy` device property is
+`hpp-n42/socket/keithley6221` — the **same** Socket, and the same instrument,
+as `PyKeithley` (which uses the class default). `PyKeithley2` has its own
+`hpp-n42/socket/keithley6221_2`. All three servers run simultaneously, and
+the 6221 accepts one TCP client at a time, so a write to `PyKeithley` will
+abort/reconfigure a square wave started through `PyKeithleyPulse`. Do not
+drive both from a measurement.
+
+### Verification
+`py_compile` clean. The real `pulseAmplitude` / `maxAmplitude` setters were
+driven against a fake Socket (11 of the 32 checks in the SAMBA harness, not
+committed): idle write arms with `SOUR:WAVE:ABOR` first and `FUNC SQU`,
+mA→A conversion (12.5 mA → `AMPL 0.0125`), zero aborts and clears the flag,
+`maxAmplitude` clamp honoured (50 mA capped to 7.5 → `AMPL 0.0075`), negative
+amplitude taken as magnitude, cap lowered while running re-arms, and a
+`maxAmplitude` write while idle starts nothing. **No write was sent to the
+real instrument** — the live device was only queried read-only.

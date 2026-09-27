@@ -1,0 +1,16 @@
+name: SetupLock tests
+on:
+  push:
+    paths: ['tango_servers_new/SetupLock/**', '.github/workflows/setup-lock-tests.yml']
+  pull_request:
+    paths: ['tango_servers_new/SetupLock/**', '.github/workflows/setup-lock-tests.yml']
+jobs:
+  leases:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytango
+      - run: python -m unittest discover -s tango_servers_new/SetupLock -v

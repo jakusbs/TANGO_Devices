@@ -26,6 +26,8 @@ from tango import AttrQuality, DispLevel, DevState
 from tango import AttrWriteType
 # Additional import
 # PROTECTED REGION ID(Setup_lock.additionnal_import) ENABLED START #
+import json
+from lease_store import LeaseStore
 # PROTECTED REGION END #    //  Setup_lock.additionnal_import
 
 __all__ = ["Setup_lock", "main"]
@@ -45,13 +47,8 @@ class Setup_lock(Device):
     def init_device(self):
         """Initializes the attributes and properties of the Setup_lock."""
         Device.init_device(self)
-        self._green_busy = False
-        self._ir_busy = False
-        self._cryo_busy = False
-        self._green_info = ''
-        self._ir_info = ''
-        self._cryo_info = ''
         # PROTECTED REGION ID(Setup_lock.init_device) ENABLED START #
+        self._leases = LeaseStore()
         self.set_state(DevState.ON)
         self.set_status('Setup_lock ready - all setups free')
         # PROTECTED REGION END #    //  Setup_lock.init_device
@@ -59,7 +56,7 @@ class Setup_lock(Device):
     def always_executed_hook(self):
         """Method always executed before any TANGO command is executed."""
         # PROTECTED REGION ID(Setup_lock.always_executed_hook) ENABLED START #
-        any_busy = self._green_busy or self._ir_busy or self._cryo_busy
+        any_busy = any(self._leases.status(name)["busy"] for name in ("green", "ir", "cryo"))
         self.set_state(DevState.RUNNING if any_busy else DevState.ON)
         # PROTECTED REGION END #    //  Setup_lock.always_executed_hook
 
@@ -86,16 +83,14 @@ class Setup_lock(Device):
     def greenbusy(self):
         # PROTECTED REGION ID(Setup_lock.GreenBusy_read) ENABLED START #
         """Return the GreenBusy attribute."""
-        return self._green_busy
+        return self._leases.status("green")["busy"]
         # PROTECTED REGION END #    //  Setup_lock.GreenBusy_read
 
     @greenbusy.write
     def greenbusy(self, value):
         # PROTECTED REGION ID(Setup_lock.GreenBusy_write) ENABLED START #
         """Set the GreenBusy attribute."""
-        self._green_busy = bool(value)
-        if not value:
-            self._green_info = ''
+        self._leases.legacy_write("green", "busy", value)
         # PROTECTED REGION END #    //  Setup_lock.GreenBusy_write
 
     @attribute(
@@ -107,16 +102,14 @@ class Setup_lock(Device):
     def irbusy(self):
         # PROTECTED REGION ID(Setup_lock.IrBusy_read) ENABLED START #
         """Return the IrBusy attribute."""
-        return self._ir_busy
+        return self._leases.status("ir")["busy"]
         # PROTECTED REGION END #    //  Setup_lock.IrBusy_read
 
     @irbusy.write
     def irbusy(self, value):
         # PROTECTED REGION ID(Setup_lock.IrBusy_write) ENABLED START #
         """Set the IrBusy attribute."""
-        self._ir_busy = bool(value)
-        if not value:
-            self._ir_info = ''
+        self._leases.legacy_write("ir", "busy", value)
         # PROTECTED REGION END #    //  Setup_lock.IrBusy_write
 
     @attribute(
@@ -128,16 +121,14 @@ class Setup_lock(Device):
     def cryobusy(self):
         # PROTECTED REGION ID(Setup_lock.CryoBusy_read) ENABLED START #
         """Return the CryoBusy attribute."""
-        return self._cryo_busy
+        return self._leases.status("cryo")["busy"]
         # PROTECTED REGION END #    //  Setup_lock.CryoBusy_read
 
     @cryobusy.write
     def cryobusy(self, value):
         # PROTECTED REGION ID(Setup_lock.CryoBusy_write) ENABLED START #
         """Set the CryoBusy attribute."""
-        self._cryo_busy = bool(value)
-        if not value:
-            self._cryo_info = ''
+        self._leases.legacy_write("cryo", "busy", value)
         # PROTECTED REGION END #    //  Setup_lock.CryoBusy_write
 
     @attribute(
@@ -148,14 +139,14 @@ class Setup_lock(Device):
     def greeninfo(self):
         # PROTECTED REGION ID(Setup_lock.GreenInfo_read) ENABLED START #
         """Return the GreenInfo attribute."""
-        return self._green_info
+        return self._leases.status("green")["owner"]
         # PROTECTED REGION END #    //  Setup_lock.GreenInfo_read
 
     @greeninfo.write
     def greeninfo(self, value):
         # PROTECTED REGION ID(Setup_lock.GreenInfo_write) ENABLED START #
         """Set the GreenInfo attribute."""
-        self._green_info = str(value)
+        self._leases.legacy_write("green", "info", value)
         # PROTECTED REGION END #    //  Setup_lock.GreenInfo_write
 
     @attribute(
@@ -166,14 +157,14 @@ class Setup_lock(Device):
     def irinfo(self):
         # PROTECTED REGION ID(Setup_lock.IrInfo_read) ENABLED START #
         """Return the IrInfo attribute."""
-        return self._ir_info
+        return self._leases.status("ir")["owner"]
         # PROTECTED REGION END #    //  Setup_lock.IrInfo_read
 
     @irinfo.write
     def irinfo(self, value):
         # PROTECTED REGION ID(Setup_lock.IrInfo_write) ENABLED START #
         """Set the IrInfo attribute."""
-        self._ir_info = str(value)
+        self._leases.legacy_write("ir", "info", value)
         # PROTECTED REGION END #    //  Setup_lock.IrInfo_write
 
     @attribute(
@@ -184,19 +175,44 @@ class Setup_lock(Device):
     def cryoinfo(self):
         # PROTECTED REGION ID(Setup_lock.CryoInfo_read) ENABLED START #
         """Return the CryoInfo attribute."""
-        return self._cryo_info
+        return self._leases.status("cryo")["owner"]
         # PROTECTED REGION END #    //  Setup_lock.CryoInfo_read
 
     @cryoinfo.write
     def cryoinfo(self, value):
         # PROTECTED REGION ID(Setup_lock.CryoInfo_write) ENABLED START #
         """Set the CryoInfo attribute."""
-        self._cryo_info = str(value)
+        self._leases.legacy_write("cryo", "info", value)
         # PROTECTED REGION END #    //  Setup_lock.CryoInfo_write
 
     # --------
     # Commands
     # --------
+
+
+    @command(dtype_in=str, dtype_out=str)
+    def AcquireLease(self, argin):
+        """JSON {setup, owner, ttl} -> JSON {acquired, owner}."""
+        # PROTECTED REGION ID(Setup_lock.AcquireLease) ENABLED START #
+        args = json.loads(argin)
+        return json.dumps(self._leases.acquire(args["setup"], args["owner"], args.get("ttl", 180)))
+        # PROTECTED REGION END #    //  Setup_lock.AcquireLease
+
+    @command(dtype_in=str, dtype_out=bool)
+    def RenewLease(self, argin):
+        """Renew only the current, unexpired owner."""
+        # PROTECTED REGION ID(Setup_lock.RenewLease) ENABLED START #
+        args = json.loads(argin)
+        return self._leases.renew(args["setup"], args["owner"], args.get("ttl", 180))
+        # PROTECTED REGION END #    //  Setup_lock.RenewLease
+
+    @command(dtype_in=str, dtype_out=bool)
+    def ReleaseLease(self, argin):
+        """Release only the current owner; another client cannot clear it."""
+        # PROTECTED REGION ID(Setup_lock.ReleaseLease) ENABLED START #
+        args = json.loads(argin)
+        return self._leases.release(args["setup"], args["owner"])
+        # PROTECTED REGION END #    //  Setup_lock.ReleaseLease
 
 
 # ----------

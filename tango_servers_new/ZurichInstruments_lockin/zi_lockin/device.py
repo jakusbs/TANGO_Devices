@@ -1,26 +1,32 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 """
-ZI2
-Zurich Instruments MFLI lock-in amplifier TANGO server (second unit).
-Same code as ZI but configured for dev30933 by default.
-DeviceId, host and harmonics are device properties so the same code base
-can drive any MFLI without source edits.
+Zurich Instruments MFLI lock-in amplifier TANGO server — ONE source.
+
+`ZILockin` holds every attribute and command; `ZI` (Green, dev4855) and
+`ZI2` (IR, dev30933) are thin subclasses that only change the default values
+of the `DeviceId` / `ZI_Host` device properties, so the TANGO class names the
+database knows (`ZI`, `ZI2`) and the server executables (`ZI_DAQ`, `ZI2_DAQ`)
+are unchanged.  Before October 2026 the two were separate near-identical
+files (ZI.py / ZI2.py plus two thread files and two packaged copies), and
+every fix had to be applied to all of them by hand.
+
+Any MFLI can be driven without a source edit: DeviceId, host, port, API
+level and the demodulator harmonics are device properties.
 """
 
 import threading
 import time
 
-import numpy as np
 import tango
 from tango import DevState, AttrWriteType
 from tango.server import Device, attribute, command, device_property, run
 
 import zhinst.ziPython as ziPython
 
-from ThreadZI2 import ThreadZI2
+from .thread import AcquisitionThread
 
-__all__ = ["ZI2", "main"]
+__all__ = ["ZILockin", "ZI", "ZI2", "SETTLE_99", "main_zi", "main_zi2"]
 
 
 # 99 % settling-time multipliers, indexed by filter order (1..8).
@@ -28,28 +34,37 @@ SETTLE_99 = {1: 4.6, 2: 6.6, 3: 8.4, 4: 10.0,
              5: 11.6, 6: 13.1, 7: 14.6, 8: 16.0}
 
 
-class ZI2(Device):
+class ZILockin(Device):
     """
-    ZI2 MFLI lock-in amplifier (second unit).
+    MFLI lock-in amplifier (base class — register `ZI` or `ZI2`, not this).
 
     **Properties:**
-    - DeviceId: ZI device serial (default 'dev30933')
-    - ZI_Host: IP address of the MFLI (default 192.168.1.144)
+    - DeviceId: ZI device serial (e.g. 'dev4855')
+    - ZI_Host: IP address of the MFLI data server
     - ZI_Port: Data server port (default 8004)
     - ZI_ApiLevel: ziDAQ API level (default 6)
-    - Harmonics: harmonic order for each demodulator 0..3
-        Default [1,2,3,1] — demod 3 uses harmonic 1 per a 2024 setup change
-        (do not "fix" without verifying the experimental setup).
+    - Harmonics: harmonic order for each demodulator 0..3 (4 ints).
+        Default [1,2,3,1]: demod 4 locks to ExtRef 2 at the fundamental (on
+        ZI2 this follows a 2024 setup change — do not "fix" without checking
+        the experimental setup).
+    - AllowVersionMismatch: pass allow_version_mismatch=True to ziDAQServer
+        when the LabOne firmware and the zhinst package disagree.
+
+    **Start contract** (the SAMBA scan engine depends on it): ON → RUNNING
+    while the acquisition thread collects, then ON with fresh x1..y4; a
+    failed acquisition ends in FAULT and every later Start RAISES until
+    Reconnect — a quiet return would let the client read the cached values
+    of the previous integration as new data.
     """
 
     DeviceId = device_property(
         dtype='str',
-        default_value='dev30933',
-        doc="ZI device serial (e.g. 'dev30933')"
+        default_value='dev4855',
+        doc="ZI device serial (e.g. 'dev4855')"
     )
     ZI_Host = device_property(
         dtype='str',
-        default_value='192.168.1.144',
+        default_value='192.168.1.62',
         doc="IP address of the MFLI data server"
     )
     ZI_Port = device_property(
@@ -66,7 +81,7 @@ class ZI2(Device):
         dtype=(int,),
         default_value=[1, 2, 3, 1],
         doc="Harmonic order for demods 0..3 (4 ints). "
-            "Default [1,2,3,1] for ZI2 per 2024 setup change."
+            "Default [1,2,3,1]: demod 4 locks to ExtRef 2 at the fundamental."
     )
     AllowVersionMismatch = device_property(
         dtype=bool,
@@ -138,10 +153,10 @@ class ZI2(Device):
             tango.Except.throw_exception(
                 "No_connection",
                 "MFLI not connected — use Reconnect command.",
-                "ZI2")
+                type(self).__name__)
 
     def _path(self, suffix):
-        """Build a full ZI node path: '/dev30933/<suffix>'."""
+        """Build a full ZI node path: '/<DeviceId>/<suffix>'."""
         return '/{}/{}'.format(self.DeviceId, suffix)
 
     def _configure_demods(self):
@@ -149,7 +164,7 @@ class ZI2(Device):
             tango.Except.throw_exception(
                 "Bad Harmonics property",
                 f"Harmonics must contain 4 ints, got {list(self.Harmonics)}",
-                "ZI2::init_device")
+                f"{type(self).__name__}::init_device")
         for i in range(4):
             self.daq.setInt(self._path(f'demods/{i}/oscselect'), 0)
             self.daq.setDouble(self._path(f'demods/{i}/harmonic'), self.Harmonics[i])
@@ -180,7 +195,7 @@ class ZI2(Device):
             order = int(self.daq.getDouble(self._path('demods/0/order')))
         return SETTLE_99.get(order, 16.0) * tc, tc, order
 
-    # ---- demodulator readouts (populated by ThreadZI2) -----------------
+    # ---- demodulator readouts (populated by AcquisitionThread) ---------
 
     @attribute(dtype=float, access=AttrWriteType.READ)
     def x1(self): return self._x[0]
@@ -351,7 +366,7 @@ class ZI2(Device):
             # before the thread is scheduled must not pass the state==ON guard
             # and spawn a second acquisition thread (split sample stream).
             self.set_state(DevState.RUNNING)
-            self.thread = ThreadZI2(self)
+            self.thread = AcquisitionThread(self)
             try:
                 self.thread.start()
             except Exception:
@@ -396,9 +411,37 @@ class ZI2(Device):
         self.set_state(DevState.ON)
 
 
-def main(args=None, **kwargs):
+# ---- the two instruments: only the property defaults differ -----------------
+
+class ZI(ZILockin):
+    """Green setup MFLI — dev4855 at 192.168.1.62 (TANGO class `ZI`)."""
+
+    DeviceId = device_property(dtype='str', default_value='dev4855',
+                               doc="ZI device serial (e.g. 'dev4855')")
+    ZI_Host = device_property(dtype='str', default_value='192.168.1.62',
+                              doc="IP address of the MFLI data server")
+
+
+class ZI2(ZILockin):
+    """IR setup MFLI — dev30933 at 192.168.1.144 (TANGO class `ZI2`)."""
+
+    DeviceId = device_property(dtype='str', default_value='dev30933',
+                               doc="ZI device serial (e.g. 'dev30933')")
+    ZI_Host = device_property(dtype='str', default_value='192.168.1.144',
+                              doc="IP address of the MFLI data server")
+
+
+# ---- server entry points (console_scripts ZI_DAQ / ZI2_DAQ) -----------------
+
+def main_zi(args=None, **kwargs):
+    """Entry point of the `ZI_DAQ` server executable (TANGO class ZI)."""
+    return run((ZI,), args=args, **kwargs)
+
+
+def main_zi2(args=None, **kwargs):
+    """Entry point of the `ZI2_DAQ` server executable (TANGO class ZI2)."""
     return run((ZI2,), args=args, **kwargs)
 
 
 if __name__ == '__main__':
-    main()
+    main_zi()

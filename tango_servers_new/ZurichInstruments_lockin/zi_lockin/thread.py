@@ -1,31 +1,43 @@
-# File:             ThreadZI2.py
-# author:           P. Noel, C. Murer (original)
+# zi_lockin/thread.py — one integration cycle of an MFLI lock-in.
 #
-# v5.0 — modern tango.server companion: reads DeviceId from parent, writes
-#         results into parent._x / parent._y so the new attribute getters
-#         pick them up. Settling is NOT done here — Samba waits before Start().
+# Originally ThreadZI.py / ThreadZI2.py (P. Noel, C. Murer); the two files
+# differed only in their class name and log prefixes.  The prefix is now the
+# parent device's class name, so the log lines read exactly as before
+# ("ZI: polled …" on the Green server, "ZI2: polled …" on the IR one).
+#
+# Settling is NOT done here — Samba waits for `settlingtime` before Start().
 
 import threading
-import tango
+
 import numpy as np
+import tango
 
 MIN_COLLECT = 0.05   # minimum collection window (seconds)
 
 
-class ThreadZI2(threading.Thread):
-    lock = threading.Lock()
+class AcquisitionThread(threading.Thread):
+    """Flush, collect for `integrationtime`, average, store into the parent.
+
+    Runs under the parent's ``_daq_lock`` for the whole poll, so attribute
+    reads that take the lock non-blocking return their cached value instead
+    of racing the C extension (ziDAQServer is not thread-safe).
+    """
 
     def __init__(self, parent):
         threading.Thread.__init__(self)
         self.p = parent
         self.daemon = True
 
+    @property
+    def _tag(self):
+        return type(self.p).__name__
+
     def run(self):
         self.p.set_state(tango.DevState.RUNNING)
 
         try:
             if self.p.daq is None:
-                self.p.error_stream('ThreadZI2: daq is None, aborting')
+                self.p.error_stream('Thread{}: daq is None, aborting'.format(self._tag))
                 self.p.set_state(tango.DevState.FAULT)
                 return
 
@@ -62,19 +74,20 @@ class ThreadZI2(threading.Thread):
 
             if missing:
                 self.p.warn_stream(
-                    'ZI2: poll returned no samples for demod(s): {} '
-                    '— values set to NaN (server was idle?)'.format(', '.join(missing)))
+                    '{}: poll returned no samples for demod(s): {} '
+                    '— values set to NaN (server was idle?)'.format(
+                        self._tag, ', '.join(missing)))
 
             self.p._last_collect_s = collect_time
             self.p.info_stream(
-                'ZI2: polled {:.3f}s, numpy avg'.format(collect_time))
+                '{}: polled {:.3f}s, numpy avg'.format(self._tag, collect_time))
 
         except Exception as e:
             # End in FAULT, not ON: a clean RUNNING->ON transition after a
             # failed acquisition makes the scan engine read stale values as
             # a successful point. Recover via the Reconnect command.
             try:
-                self.p.error_stream('ThreadZI2 error: {}'.format(e))
+                self.p.error_stream('Thread{} error: {}'.format(self._tag, e))
                 self.p.set_state(tango.DevState.FAULT)
                 self.p.set_status('Acquisition failed: {}'.format(e))
             except Exception:

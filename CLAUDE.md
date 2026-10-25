@@ -828,3 +828,37 @@ mA→A conversion (12.5 mA → `AMPL 0.0125`), zero aborts and clears the flag,
 amplitude taken as magnitude, cap lowered while running re-arms, and a
 `maxAmplitude` write while idle starts nothing. **No write was sent to the
 real instrument** — the live device was only queried read-only.
+
+---
+
+## Tests (October 2026)
+
+`tests/` runs the servers in-process with `tango.test_context.DeviceTestContext`
+— no database, no PLC, no instrument — and the workflow in
+`.github/workflows/tests.yml` runs them on every push.  Run locally with
+`python -m pytest tests -q` (needs `pytango`, `pytest`, `numpy`).
+
+- `tests/fakes.py` — `FakeAdsBridge`: the AdsBridge2 command set
+  (`ReadBool`/`WriteBool("VAR=true")`/`ReadReal`/`WriteReal`/`ReadShort`/
+  `WriteShort`) over an in-memory symbol table, with `Trace()` (every write in
+  order), `FailWrites`/`FailReads` (a dead ADS link).
+- `tests/test_remade_servers.py` — `SetupLock` (busy drives the state, release
+  auto-clears the stamp, locks independent); `PyRelais` (ground → switch →
+  unground, actuation on an unchanged value, failed switch still ungrounds and
+  raises, cache follows success only); `DoubleInBeckhoffAverage`
+  (IntegrationTime → PLC cycles and its limits, Start → RUNNING until the PLC
+  clears the flag, Value from the PLC, **a failed Start raises with the state
+  still ON** — the SAMBA engine learns of it only through the asynchronous
+  reply, Samba §86 D1).
+- `tests/test_zi2.py` — `ZI2` with `zhinst.ziPython` replaced by a fake
+  `ziDAQServer` (steered through a JSON control file, since the server runs in
+  a child process): RUNNING → ON with the `×1e6×√2` averages, settling time
+  from TC/order, NaN (not 0) when a poll returns no samples, FAULT after a
+  failed acquisition and a Start that then raises `Not_ready` until
+  `Reconnect`.  `ThreadZI2_DAQ.py` is loaded under the name `ThreadZI2` the
+  server imports (the install script does the rename).
+- Servers that take a device path to a dependency get the **full** nodb access
+  name (`ctx.get_device_access()`), never `proxy.name()` — the short name
+  resolves against the wrong server from another process.
+- `conftest.py` pins the `fork` start method: the fakes reach the server child
+  only by fork, and Python 3.14 defaults to forkserver.

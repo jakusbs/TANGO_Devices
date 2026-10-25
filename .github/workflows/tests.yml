@@ -1,0 +1,16 @@
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # The servers are served in-process by tango.test_context against fake
+      # dependencies (tests/fakes.py) — no database, no PLC, no instrument.
+      - run: pip install numpy pytango pytest
+      - run: python -m pytest tests -q

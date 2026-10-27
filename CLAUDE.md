@@ -313,13 +313,13 @@ Lives in `tango_servers_new/adsbridge2/`. Replaces the old C++ AdsBridge. Uses `
 ### DoubleInBeckhoff / DoubleOutBeckhoff (in tango_servers_new/)
 - Minimal passthrough wrappers around AdsBridge2 `ReadReal` / `WriteReal`. No caching. No error handling — exceptions from AdsBridge propagate directly to the caller.
 
-### ZI / ZI2 (in tango_servers_new/ZurichInstruments_lockin/ — ONE source since October 2026)
-- Both are Zurich Instruments MFLI lock-in servers served from the single package `zi_lockin`: `device.py` holds the whole server as `ZILockin`; `ZI` (Green, dev4855 @ 192.168.1.62) and `ZI2` (IR, dev30933 @ 192.168.1.144) are four-line subclasses that only override the `DeviceId` / `ZI_Host` property defaults (`Harmonics` defaults to `[1,2,3,1]` on both). `thread.py` is the acquisition thread (`AcquisitionThread`, log prefix = the parent's class name). The TANGO class names, the `ZI_DAQ` / `ZI2_DAQ` executables and the registered instances are unchanged; `install.sh` installs both from one pip package (`tangods-zi-lockin`), uninstalling the old `tangods-ZI_DAQ` / `tangods-ZI2_DAQ` first.
+### ZI / ZI2 (in tango_servers_new/ZurichInstruments_lockin*_correct_read/)
+- Both are Zurich Instruments MFLI lock-in servers. They differ only by default device ID (`dev4855` vs `dev30933`), default host IP and default `Harmonics`.
 - **Ported to modern `tango.server.Device` API.** All ZI paths are now built from a `DeviceId` device property — no source edits needed to point at a different MFLI.
 - New device properties: `DeviceId`, `ZI_Host`, `ZI_Port`, `ZI_ApiLevel`, `Harmonics` (4-element int array).
 - `ZI2` defaults `Harmonics = [1,2,3,1]` — demod 3 uses harmonic 1 (not 4 as in `ZI`) per a 2024 change. Preserved as the property default; do not change without verifying the experimental setup.
 - The companion `ThreadZI` / `ThreadZI2` no longer carry a hardcoded `DEVICE` constant — they pull `DeviceId` from the parent and write into `parent._x[i]` / `parent._y[i]`.
-- The launch entry points (`ZI_DAQ <instance>`, `ZI2_DAQ <instance>`) are `console_scripts` of the package (`zi_lockin:main_zi` / `main_zi2`); Jive class names (`ZI`, `ZI2`) are unchanged. There is no copy/rename step any more — the old install scripts generated two packages from two copies of the code, and the generated copies drifted (§29 in the Samba CLAUDE.md).
+- Source files keep `from ThreadZI import ThreadZI` (resp. `ThreadZI2`); the `install_*_DAQ.sh` scripts rename `ThreadZI_DAQ.py` → `ThreadZI.py` and rewrite the import to a relative one inside the `ZI_DAQ` / `ZI2_DAQ` package. The launch entry point (`ZI_DAQ <instance>`) and Jive class names (`ZI`, `ZI2`) are unchanged.
 
 ### ZI / ZI2 — thread safety and crash fixes
 `ziDAQServer` is a C extension that is **not thread-safe**. Three crash causes were identified and fixed:
@@ -831,37 +831,27 @@ real instrument** — the live device was only queried read-only.
 
 ---
 
-## Recent Changes (October 2026) — One ZI Lock-in Source
+## October 2026 — ZI / ZI2 single-source consolidation: prepared, then parked
 
-`tango_servers_new/ZurichInstruments_lockin_correct_read/` (ZI) and
-`…lockin2_correct_read/` (ZI2) were two copies of the same server: `ZI.py` vs
-`ZI2.py` differed in 42 of 404 lines (class name, docstrings, the `DeviceId` /
-`ZI_Host` defaults, log prefixes), the two thread files in 12 of 87 (class
-name, prefixes), and each directory also carried a generated package copy
-plus `build/` and `egg-info` under version control.  Every fix (§29 thread
-safety, §67 "Start raises in FAULT", NaN-not-zero) had to be applied to all
-of them by hand, and the packaged copies had drifted once already.
+Commit `7d141b7` on `claude/trusting-darwin-zb18w0` merged the two lock-in
+servers (`ZurichInstruments_lockin_correct_read/ZI.py` and
+`…lockin2_correct_read/ZI2.py`, which differ in 42 of 404 lines — names,
+docstrings, the `DeviceId`/`ZI_Host` defaults, log prefixes — plus the two
+thread files and two generated package copies) into one package,
+`tango_servers_new/ZurichInstruments_lockin/zi_lockin/`: `ZILockin(Device)`
+with everything, `ZI`/`ZI2` as subclasses overriding only the two property
+defaults, one acquisition thread, one pip package with both `ZI_DAQ`/`ZI2_DAQ`
+console scripts, `tests/test_zi_lockin.py` covering both classes.  pytango 10
+inherits attributes/commands/properties into a `Device` subclass and lets it
+override a property default (verified in-process).
 
-Now `tango_servers_new/ZurichInstruments_lockin/zi_lockin/`:
-- `device.py` — `ZILockin(Device)` with every attribute and command, and
-  `ZI(ZILockin)` / `ZI2(ZILockin)` overriding only the two property defaults.
-  pytango 10 inherits attributes, commands and properties into a `Device`
-  subclass and lets it override a property default (verified in-process
-  before relying on it; the metaclass copies the inherited TANGO objects into
-  each subclass namespace, so "what the subclass declares" is a source-level
-  question).
-- `thread.py` — `AcquisitionThread`; the log prefix is the parent's class
-  name, so the Green and IR servers still log as `ZI:` / `ZI2:`.
-- `pyproject.toml` — one pip package `tangods-zi-lockin` with both console
-  scripts (`ZI_DAQ = zi_lockin:main_zi`, `ZI2_DAQ = zi_lockin:main_zi2`) and
-  the exact `zhinst==24.10.1` pin (must match LabOne on the instruments).
-- `install.sh` — uninstalls the two old packages (they owned the same script
-  names), installs this one with `--no-deps` (pytango is never reinstalled),
-  then the pinned zhinst/numpy without `--force-reinstall`.
-- Both old directories are deleted from the repository, including the tracked
-  generated copies.  **Needs a redeploy** on the machine(s) running the two
-  instances; nothing changes in the database.
-- `tests/test_zi_lockin.py` replaces `test_zi2.py` (16 tests in the suite).
+It was **reverted the same day at the lab's request** ("leave the ZI servers
+alone for now"): the consolidation requires a redeploy with pip operations on
+the zhinst client, which is the step that has put a lock-in in FAULT before.
+The two directories above are therefore the live source again and **nothing
+needs deploying**.  To resume later: `git cherry-pick 7d141b7` (then re-run
+`python -m pytest tests -q`, which should report 16), and run its `install.sh`
+in the environment the Tango Starter uses.
 
 ## Tests (October 2026)
 
@@ -882,15 +872,13 @@ Now `tango_servers_new/ZurichInstruments_lockin/zi_lockin/`:
   clears the flag, Value from the PLC, **a failed Start raises with the state
   still ON** — the SAMBA engine learns of it only through the asynchronous
   reply, Samba §86 D1).
-- `tests/test_zi_lockin.py` — the `zi_lockin` package with `zhinst.ziPython`
-  replaced by a fake `ziDAQServer` for any device id (steered through a JSON
-  control file and recording every write in a trace file, since the server
-  runs in a child process): RUNNING → ON with the `×1e6×√2` averages, settling
-  time from TC/order, NaN (not 0) when a poll returns no samples, FAULT after a
+- `tests/test_zi2.py` — `ZI2` with `zhinst.ziPython` replaced by a fake
+  `ziDAQServer` (steered through a JSON control file, since the server runs in
+  a child process): RUNNING → ON with the `×1e6×√2` averages, settling time
+  from TC/order, NaN (not 0) when a poll returns no samples, FAULT after a
   failed acquisition and a Start that then raises `Not_ready` until
-  `Reconnect`; and that `ZI` and `ZI2` are one server — identical attribute
-  and command sets, the subclass bodies declaring exactly `DeviceId` and
-  `ZI_Host`, and the Green class configuring harmonics under `/dev4855/…`.
+  `Reconnect`.  `ThreadZI2_DAQ.py` is loaded under the name `ThreadZI2` the
+  server imports (the install script does the rename).
 - Servers that take a device path to a dependency get the **full** nodb access
   name (`ctx.get_device_access()`), never `proxy.name()` — the short name
   resolves against the wrong server from another process.
